@@ -3,22 +3,22 @@
 [![Python Version](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![Package Manager](https://img.shields.io/badge/managed%20by-uv-purple.svg)](https://github.com/astral-sh/uv)
 [![CLI Integration](https://img.shields.io/badge/integration-Google%20Workspace%20CLI%20(gws)-green.svg)](https://github.com/googleworkspace/cli)
-[![Tests](https://img.shields.io/badge/tests-47%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-81%20passed-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> Intelligent, deterministic Email Triage, Action Item Extraction, Contextual Reply Generation, and Google Calendar Scheduling powered by **Google Workspace CLI (`gws`)**, **UV**, and **AI Agents**.
+> Intelligent, deterministic Email Triage, Action Item Extraction, Contextual Reply Generation, and Google Calendar Scheduling powered by **Google Workspace CLI (`gws`)**, **UV**, and **Pluggable AI Agents (AGY, Claude Code, Codex, Grok)**.
 
 ---
 
 ## 🌟 Overview
 
-`inbox-zero` is a privacy-first, developer-centric email triage tool designed to help you reach and maintain **Inbox Zero**. By marrying fast deterministic Python parsing with the official Google Workspace CLI (`gws`), `inbox-zero` automatically:
+`inbox-zero` is a privacy-first, developer-centric email triage tool designed to help you reach and maintain **Inbox Zero**. By marrying fast deterministic Python parsing with the official Google Workspace CLI (`gws`) and pluggable AI agents, `inbox-zero` automatically:
 - 📖 **Scans & Cleans Emails**: Parses raw Gmail threads, converts multipart HTML newsletters to clean markdown, and strips legal disclaimers.
 - ⚡ **Extracts Action Items**: Surfaces explicit requests, required forms, payments, and deadlines.
 - 📅 **Detects Calendar Events**: Isolates dates and times, suggesting 1-click Google Calendar additions.
 - 💬 **Drafts Contextual Smart Replies**: Suggests natural quick replies for human senders (teachers, coaches, colleagues) while ignoring automated newsletters.
+- 🤖 **Pluggable AI Agents (Subscription-Based)**: Plug in **AGY (default)**, **Claude Code**, **Codex**, **Grok**, or any custom CLI agent. Runs directly against your existing CLI tool subscriptions—**no per-token API billing**.
 - 🛡️ **Fails Fast on Auth**: Immediately detects unauthenticated or expired `gws` sessions with clear recovery steps (`gws auth login`).
-- 🤖 **Empowers AI Agents**: Emits Pydantic-validated structured JSON for LLM orchestration and Antigravity (AGY) workflows.
 
 ---
 
@@ -31,7 +31,7 @@
 └──────────────────────────────▲──────────────────────────────┘
                                │
                        [ gws CLI Layer ]
-                OAuth2 / Subprocess Orchestration
+                OAuth2 / Subprocess Orchestraction
                                │
 ┌──────────────────────────────▼──────────────────────────────┐
 │                    inbox-zero Core Engine                   │
@@ -42,13 +42,14 @@
 │   Fail-Fast Auth  │ Signature Strip   │ Event Deduplication │
 └───────────────────┴───────────────────┴─────────────────────┘
                                │
-           ┌───────────────────┴───────────────────┐
-           ▼                                       ▼
- 🖥️ Interactive CLI (Rich / Typer)        🤖 AI Agent Bridge (agent_bridge.py)
- - Visual Triage Tables                   - Structured Pydantic Payloads
- - Step-by-Step Email Review              - Programmatic Decision Dispatch
- - 1-Click Calendar Add & Mark Read       - Two-way AGY Agent Integration
- - 1-Click Contextual Reply Sending
+            ┌──────────────────┴──────────────────┐
+            ▼                                     ▼
+ 🖥️ Interactive CLI (Rich / Typer)        🤖 Pluggable AI Agents (agent_bridge.py)
+ - Visual Triage Tables                   - AGY / Antigravity (Default)
+ - Step-by-Step Email Review              - Claude Code (`claude -p`)
+ - 1-Click Calendar Add & Mark Read       - Codex / ChatGPT CLI
+ - 1-Click Contextual Reply Sending       - Grok / xAI CLI & Custom Runners
+ - Zero Token API Billing Subscriptions   - Deterministic Decision Dispatch
 ```
 
 ### Repository Layout
@@ -56,23 +57,26 @@
 inbox_zero/
 ├── pyproject.toml              # UV package specification & dependencies
 ├── uv.lock                     # Deterministic dependency lockfile
+├── config.toml                 # User configuration file (review mode, agent provider)
 ├── README.md                   # Project documentation
 ├── src/
 │   └── inbox_zero/
 │       ├── __init__.py         # Public package exports
+│       ├── config.py           # TOML/JSON configuration loader & schemas
 │       ├── client.py           # Subprocess wrapper for gws CLI (Gmail + Calendar)
-│       ├── models.py           # Pydantic schemas (EmailMessage, TriageItem, CalendarEventSuggestion)
+│       ├── models.py           # Pydantic schemas (EmailMessage, TriageItem, AgentDecisions)
 │       ├── parser.py           # BeautifulSoup HTML cleaner & disclaimer filter
 │       ├── analyzer.py         # Deterministic date/action heuristics & smart replies
-│       ├── agent_bridge.py     # AI Agent & AGY ingestion / decision execution bridge
+│       ├── agent_bridge.py     # Pluggable AI Agent bridge & execution engine
 │       └── cli.py              # Interactive Rich / Typer terminal application
 └── tests/
+    ├── test_config.py          # Configuration loading & override tests
     ├── test_parser.py          # HTML parsing and cleanup tests
     ├── test_analyzer.py        # Heuristics, dates, and reply suggestion tests
     ├── test_client.py          # GWS client auth checks, timeouts & command tests
     ├── test_models.py          # Pydantic schema validation & serialization tests
-    ├── test_agent_bridge.py    # AI Agent payload preparation & decision dispatch tests
-    └── test_cli.py             # Typer CLI test suite (table, review, JSON, mark-read)
+    ├── test_agent_bridge.py    # AI Agent bridge & execution tests
+    └── test_cli.py             # Typer CLI test suite (scan, review, agent, mark-read)
 ```
 
 ---
@@ -98,6 +102,44 @@ cd inbox_zero
 uv sync
 ```
 
+Running `uv run inbox-zero` without arguments will show the available commands and help.
+
+---
+
+## ⚙️ Configuration
+
+`inbox-zero` automatically looks for a configuration file in:
+1. Custom path specified via `--config /path/to/config.toml`
+2. `INBOX_ZERO_CONFIG` environment variable
+3. Current working directory: `config.toml`, `inbox-zero.toml`, `.inbox-zero.toml`
+4. User home directory: `~/.config/inbox-zero/config.toml`, `~/.inbox-zero.toml`
+
+### Example `config.toml`
+```toml
+# inbox-zero configuration file
+
+[review]
+# By default, review mode shows title summary, overview, action items, dates, and suggested replies.
+# Set show_body = true if you want to display the full email conversation thread body by default.
+show_body = false
+
+[agent]
+# Pluggable AI Agent provider.
+# Supported options: "agy" (default), "claude" (Claude Code), "codex", "grok", "custom"
+# Uses your local CLI tool login/subscription with zero per-token API billing.
+provider = "agy"
+
+# Optional custom CLI command override (e.g. "claude -p", "codex", "grok --json")
+# command = ""
+
+# Automatically apply AI agent decisions without interactive confirmation (default: false)
+auto_apply = false
+
+# Default scan & review options:
+# default_limit = 20
+# default_query = "is:unread"
+```
+
 ---
 
 ## 🛠️ CLI Usage & Workflows
@@ -113,25 +155,53 @@ Filter by custom queries or limits:
 uv run inbox-zero scan --limit 10 --query "is:unread from:teacher@nb27.org"
 ```
 
-### 2. Export Structured JSON (For AI Agents & Automation)
-Output complete Pydantic-validated JSON payloads:
-```bash
-uv run inbox-zero scan --json
-```
-
-### 3. Interactive Review Mode
-Step through unread emails one by one. Choose actions interactively:
-- `[y]` **Mark Read**: Removes the unread label in Gmail.
-- `[n]` **Keep Unread**: Leaves email untouched.
-- `[c]` **Add to Calendar**: Inserts detected dates/times into Google Calendar.
-- `[r]` **Send Reply**: Choose a suggested draft or compose a custom reply.
-- `[q]` **Quit**: Exit triage safely.
+### 2. Interactive Review Mode
+Step through unread emails one by one. By default, review mode displays the **title, summary, action items, calendar events, and suggested replies** without cluttering the screen with full email bodies.
 
 ```bash
 uv run inbox-zero review
 ```
 
-### 4. Direct Operations
+- `[y]` **Mark Read**: Removes the unread label in Gmail.
+- `[n]` **Keep Unread**: Leaves email untouched.
+- `[c]` **Add to Calendar**: Inserts detected dates/times into Google Calendar.
+- `[r]` **Send Reply**: Choose a suggested draft or compose a custom reply.
+- `[v]` **View Full Email**: Expand and view the entire conversation thread body on demand for that message.
+- `[q]` **Quit**: Exit triage safely.
+
+#### Review Flags & Overrides
+- `--show-body`: Show the full email thread body by default during review.
+- `--no-show-body`: Hide the email thread body (even if enabled in `config.toml`).
+- `--config <path>`: Load a specific configuration file.
+
+### 3. Automated / Assisted AI Agent Triage
+Run your chosen AI agent (AGY, Claude Code, Codex, Grok, or Custom) to evaluate unread messages, generate smart replies, create calendar events, and mark emails as read:
+
+```bash
+# Run with default agent (AGY)
+uv run inbox-zero agent
+
+# Run with Claude Code subscription
+uv run inbox-zero agent --provider claude
+
+# Run with Codex / Grok
+uv run inbox-zero agent --provider codex
+uv run inbox-zero agent --provider grok
+
+# Auto-apply decisions without interactive confirmation prompt
+uv run inbox-zero agent --provider claude --yes
+
+# Dry-run: inspect prompt payload without executing the agent CLI
+uv run inbox-zero agent --dry-run
+```
+
+### 4. Export Structured JSON (For Automation)
+Output complete Pydantic-validated JSON payloads:
+```bash
+uv run inbox-zero scan --json
+```
+
+### 5. Direct Operations
 Mark specific emails as read by ID:
 ```bash
 uv run inbox-zero mark-read <MESSAGE_ID_1> <MESSAGE_ID_2>
@@ -139,34 +209,20 @@ uv run inbox-zero mark-read <MESSAGE_ID_1> <MESSAGE_ID_2>
 
 ---
 
-## 🤖 AI Agent & AGY Bridge Usage
+## 🤖 Programmatic AI Agent Bridge Usage
 
-You can use [`agent_bridge.py`](file:///Users/guy/dev/ai/ai-tools/inbox_zero/src/inbox_zero/agent_bridge.py) to integrate `inbox-zero` with Antigravity (AGY) or any LLM agent in two simple steps:
+You can also use [`agent_bridge.py`](file:///Users/guy/dev/ai/ai-tools/inbox_zero/src/inbox_zero/agent_bridge.py) directly in Python:
 
 ```python
-from inbox_zero import prepare_agent_triage_payload, apply_agent_decisions
+from inbox_zero import prepare_agent_triage_payload, run_agent, apply_agent_decisions
 
 # 1. Generate clean, sanitized payload for the AI agent
 agent_payload = prepare_agent_triage_payload(limit=10)
 
-# 2. Pass agent_payload to AGY / LLM for reasoning...
-# (The LLM reviews summaries, identifies conflicts, and generates decision JSON)
+# 2. Run agent via subscription CLI (e.g. claude, agy, grok, codex)
+decisions = run_agent(agent_payload, provider="claude")
 
 # 3. Apply the AI agent's decisions deterministically
-decisions = {
-    "replies": [
-        {"message_id": "1a025fb2f98bed9f", "body": "Thank you Mrs. Patel for the update!"}
-    ],
-    "calendar_events": [
-        {
-            "summary": "AYSO Soccer Practice",
-            "start_time": "2026-08-27T17:00:00-05:00",
-            "location": "Wood Oaks Field 3"
-        }
-    ],
-    "mark_as_read": ["1a025fb2f98bed9f"]
-}
-
 results = apply_agent_decisions(decisions)
 print("Execution Results:", results)
 ```

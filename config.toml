@@ -1,0 +1,29 @@
+# inbox-zero configuration file
+
+[review]
+# Whether to display the full conversation thread / email body in interactive review mode.
+# Default: false (displays title summary, brief overview, action items, dates, and suggested replies)
+# Set to true if you wish to see the complete email thread text by default.
+show_body = false
+
+[agent]
+# Pluggable AI Agent provider for automated / assisted inbox triage.
+# Supported options:
+#   "agy"    - Antigravity CLI / AGY agent (default, uses local subscription login)
+#   "claude" - Claude Code CLI ('claude -p', uses Claude Pro/Team subscription login)
+#   "codex"  - OpenAI Codex CLI (uses subscription login)
+#   "grok"   - Grok / xAI CLI (uses subscription login)
+#   "custom" - Any custom subscription CLI command
+# Note: Designed to run with your CLI tool subscription logins with zero API token billing.
+provider = "agy"
+
+# Optional custom CLI command override (e.g. "claude -p", "codex exec", "grok --json")
+# command = ""
+
+# Automatically apply AI agent decisions without interactive confirmation (default: false)
+auto_apply = false
+
+# Default scan & review options:
+# default_limit = 20
+# default_query = "is:unread"
+

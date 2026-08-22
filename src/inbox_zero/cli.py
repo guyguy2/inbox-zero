@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import sys
 from typing import Optional
 import typer
@@ -11,14 +12,23 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.markdown import Markdown
 
+from inbox_zero.agent_bridge import (
+    AgentExecutionError,
+    apply_agent_decisions,
+    build_agent_prompt,
+    prepare_agent_triage_payload,
+    run_agent,
+)
 from inbox_zero.analyzer import analyze_email, analyze_thread
 from inbox_zero.client import GWSClient, GWSClientError, GWSAuthError
+from inbox_zero.config import load_config
 from inbox_zero.models import EmailMessage, TriageBatch, TriageItem
 
 app = typer.Typer(
     name="inbox-zero",
     help="AI & Deterministic Email Triage, Action Items, Replies & Calendar Manager using gws.",
     add_completion=False,
+    no_args_is_help=True,
 )
 console = Console()
 
@@ -37,19 +47,29 @@ def _handle_gws_error(err: Exception) -> None:
 
 @app.command()
 def scan(
-    limit: int = typer.Option(20, "--limit", "-n", help="Maximum unread threads to scan."),
-    query: str = typer.Option("is:unread", "--query", "-q", help="Gmail search filter query."),
+    limit: Optional[int] = typer.Option(None, "--limit", "-n", help="Maximum unread threads to scan."),
+    query: Optional[str] = typer.Option(None, "--query", "-q", help="Gmail search filter query."),
     as_json: bool = typer.Option(False, "--json", help="Output raw JSON for AI agents/scripts."),
+    config_file: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to custom configuration file (TOML or JSON).",
+    ),
 ) -> None:
     """Scan unread email threads, extract summaries, action items, dates, and suggested replies."""
+    cfg = load_config(config_file)
+    actual_limit = limit if limit is not None else cfg.default_limit
+    actual_query = query if query is not None else cfg.default_query
+
     client = GWSClient()
     try:
         client.ensure_authenticated()
         if not as_json:
             with console.status("[bold green]Scanning unread threads via gws...[/bold green]"):
-                threads_list = client.list_unread_threads(max_results=limit, query=query)
+                threads_list = client.list_unread_threads(max_results=actual_limit, query=actual_query)
         else:
-            threads_list = client.list_unread_threads(max_results=limit, query=query)
+            threads_list = client.list_unread_threads(max_results=actual_limit, query=actual_query)
     except GWSClientError as err:
         _handle_gws_error(err)
 
@@ -152,14 +172,30 @@ def scan(
 
 @app.command()
 def review(
-    limit: int = typer.Option(20, "--limit", "-n", help="Maximum unread threads to review."),
-    query: str = typer.Option("is:unread", "--query", "-q", help="Gmail search query."),
+    limit: Optional[int] = typer.Option(None, "--limit", "-n", help="Maximum unread threads to review."),
+    query: Optional[str] = typer.Option(None, "--query", "-q", help="Gmail search query."),
+    show_body: Optional[bool] = typer.Option(
+        None,
+        "--show-body/--no-show-body",
+        help="Show full email thread body in review mode (overrides config).",
+    ),
+    config_file: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to custom configuration file (TOML or JSON).",
+    ),
 ) -> None:
-    """Interactively review each email thread, inspect full conversation, reply, add to calendar, and mark as read."""
+    """Interactively review each email thread, inspect overview, reply, add to calendar, and mark as read."""
+    cfg = load_config(config_file)
+    actual_limit = limit if limit is not None else cfg.default_limit
+    actual_query = query if query is not None else cfg.default_query
+    display_body = show_body if show_body is not None else cfg.review.show_body
+
     client = GWSClient()
     try:
         client.ensure_authenticated()
-        threads_list = client.list_unread_threads(max_results=limit, query=query)
+        threads_list = client.list_unread_threads(max_results=actual_limit, query=actual_query)
     except GWSClientError as err:
         _handle_gws_error(err)
 
@@ -206,15 +242,12 @@ def review(
             else "_No reply needed (automated or acknowledged)_"
         )
 
+        thread_section = f"\n---\n### 🧵 Conversation Thread\n\n{messages_block}\n" if display_body else ""
+
         body_content = f"""
 **Participants:** {participants_str}
 **Category:** {item.category} | **Thread Size:** {item.message_count} message(s) ({item.unread_count} unread)
-
----
-### 🧵 Conversation Thread
-
-{messages_block}
-
+{thread_section}
 ---
 ### 📝 Overview
 {item.brief_summary}
@@ -236,11 +269,28 @@ def review(
             )
         )
 
-        # Prompt user
-        choice = typer.prompt(
-            "Action: [y] Mark Thread Read, [n] Keep Unread, [c] Add to Calendar, [r] Send Reply, [q] Quit",
-            default="y",
-        ).strip().lower()
+        prompt_text = (
+            "Action: [y] Mark Thread Read, [n] Keep Unread, [c] Add to Calendar, [r] Send Reply, [v] View Full Email, [q] Quit"
+            if not display_body
+            else "Action: [y] Mark Thread Read, [n] Keep Unread, [c] Add to Calendar, [r] Send Reply, [q] Quit"
+        )
+
+        while True:
+            choice = typer.prompt(
+                prompt_text,
+                default="y",
+            ).strip().lower()
+
+            if choice in ("v", "view", "body"):
+                console.print(
+                    Panel(
+                        Markdown(f"### 🧵 Conversation Thread\n\n{messages_block}"),
+                        title=f"Full Thread: {item.title_summary}",
+                        border_style="cyan",
+                    )
+                )
+                continue
+            break
 
         if choice == "q":
             console.print("[yellow]Triage stopped by user.[/yellow]")
@@ -300,6 +350,115 @@ def review(
             console.print("[dim]Kept thread unread.[/dim]")
 
         console.print("=" * 60)
+
+
+@app.command()
+def agent(
+    provider: Optional[str] = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help="AI Agent provider to use ('agy', 'claude', 'codex', 'grok', 'custom'). Defaults to config.",
+    ),
+    command: Optional[str] = typer.Option(
+        None,
+        "--command",
+        help="Custom CLI command override to execute local subscription agent.",
+    ),
+    limit: Optional[int] = typer.Option(None, "--limit", "-n", help="Maximum unread threads to triage."),
+    query: Optional[str] = typer.Option(None, "--query", "-q", help="Gmail search query."),
+    auto_apply: bool = typer.Option(False, "--yes", "-y", help="Auto-apply agent decisions without confirmation."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Output generated agent prompt payload without running agent."),
+    config_file: Optional[Path] = typer.Option(None, "--config", "-c", help="Path to custom config file."),
+) -> None:
+    """Triage inbox using a pluggable local AI agent (AGY, Claude Code, Codex, Grok, or custom subscription agent)."""
+    cfg = load_config(config_file)
+    actual_limit = limit if limit is not None else cfg.default_limit
+    actual_query = query if query is not None else cfg.default_query
+    actual_provider = provider if provider is not None else cfg.agent.provider
+    actual_command = command if command is not None else cfg.agent.command
+    should_auto_apply = auto_apply or cfg.agent.auto_apply
+
+    client = GWSClient()
+    try:
+        client.ensure_authenticated()
+    except GWSClientError as err:
+        _handle_gws_error(err)
+
+    if not dry_run:
+        console.print(f"[bold green]Scanning unread emails for agent triage (Provider: {actual_provider})...[/bold green]")
+
+    try:
+        payload = prepare_agent_triage_payload(limit=actual_limit, query=actual_query, client=client)
+    except Exception as e:
+        console.print(f"[bold red]❌ Error fetching triage payload:[/bold red] {e}")
+        raise typer.Exit(1)
+
+    if payload.get("total_unread", 0) == 0:
+        console.print("[green]🎉 Inbox Zero! No unread emails to triage.[/green]")
+        return
+
+    if dry_run:
+        prompt_str = build_agent_prompt(payload, system_prompt=cfg.agent.system_prompt)
+        print(prompt_str)
+        return
+
+    with console.status(f"[bold blue]Running {actual_provider} agent ({payload['total_unread']} threads)...[/bold blue]"):
+        try:
+            decisions = run_agent(
+                payload,
+                provider=actual_provider,
+                custom_command=actual_command,
+                system_prompt=cfg.agent.system_prompt,
+            )
+        except AgentExecutionError as e:
+            console.print(f"\n[bold red]❌ Agent execution failed:[/bold red] {e}\n")
+            raise typer.Exit(1)
+
+    # Display proposed agent decisions
+    console.print("\n[bold cyan]🤖 AI Agent Proposed Decisions:[/bold cyan]")
+    if "reasoning" in decisions and decisions["reasoning"]:
+        console.print(Panel(decisions["reasoning"], title="Agent Reasoning", border_style="dim"))
+
+    replies = decisions.get("replies", [])
+    events = decisions.get("calendar_events", [])
+    marked_read = decisions.get("mark_as_read", [])
+
+    if replies:
+        console.print(f"\n[bold]💬 Suggested Replies ({len(replies)}):[/bold]")
+        for r in replies:
+            console.print(f"  • Message [cyan]{r.get('message_id')}[/cyan]: \"[green]{r.get('body')}[/green]\"")
+
+    if events:
+        console.print(f"\n[bold]📅 Calendar Events ({len(events)}):[/bold]")
+        for ev in events:
+            console.print(f"  • [cyan]{ev.get('summary')}[/cyan] at [yellow]{ev.get('start_time')}[/yellow]")
+
+    if marked_read:
+        console.print(f"\n[bold]✉️  Mark as Read ({len(marked_read)} items):[/bold]")
+        for m in marked_read:
+            console.print(f"  • [dim]{m}[/dim]")
+
+    if not replies and not events and not marked_read:
+        console.print("[yellow]No actionable decisions returned by agent.[/yellow]")
+        return
+
+    if not should_auto_apply:
+        confirm = typer.confirm("\nApply these agent decisions?", default=True)
+        if not confirm:
+            console.print("[yellow]Decisions aborted by user.[/yellow]")
+            return
+
+    with console.status("[bold green]Applying agent decisions...[/bold green]"):
+        results = apply_agent_decisions(decisions, client=client)
+
+    console.print("\n[bold green]✅ Execution Complete:[/bold green]")
+    if results.get("replies_sent"):
+        console.print(f"  ✓ Replies Sent: {sum(1 for v in results['replies_sent'].values() if v)}")
+    if results.get("events_created"):
+        console.print(f"  ✓ Calendar Events Added: {len(results['events_created'])}")
+    if results.get("marked_read"):
+        console.print(f"  ✓ Marked as Read: {sum(1 for v in results['marked_read'].values() if v)}")
 
 
 @app.command()

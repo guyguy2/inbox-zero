@@ -175,3 +175,276 @@ def test_cli_review_mode_calendar():
         assert result.exit_code == 0
         assert "Added to Google Calendar" in result.stdout
         assert "Thread marked as read" in result.stdout
+
+
+def test_cli_review_mode_default_hides_body():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Soccer Practice Update",
+                sender=Sender(name="Coach Dave", email="coach@ayso.org"),
+                date="Fri, 21 Aug 2026",
+                body_text=(
+                    "Practice is on Thursday at 5pm at Field 3. "
+                    "Please bring extra water bottles for the scrimmage. "
+                    "Coach Dave will lead the warm-up exercises. "
+                    "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW."
+                ),
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+        result = runner.invoke(app, ["review"], input="y\n")
+        assert result.exit_code == 0
+        # Title and summary should appear
+        assert "Soccer Practice" in result.stdout
+        assert "Practice is on Thursday at 5pm" in result.stdout
+        # Conversation Thread header and raw body text beyond 3 sentences should NOT appear by default
+        assert "### 🧵 Conversation Thread" not in result.stdout
+        assert "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW" not in result.stdout
+        assert "[v] View Full Email" in result.stdout
+
+
+def test_cli_review_mode_show_body_flag():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Soccer Practice Update",
+                sender=Sender(name="Coach Dave", email="coach@ayso.org"),
+                date="Fri, 21 Aug 2026",
+                body_text=(
+                    "Practice is on Thursday at 5pm at Field 3. "
+                    "Please bring extra water bottles for the scrimmage. "
+                    "Coach Dave will lead the warm-up exercises. "
+                    "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW."
+                ),
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+        result = runner.invoke(app, ["review", "--show-body"], input="y\n")
+        assert result.exit_code == 0
+        assert "Conversation Thread" in result.stdout
+        assert "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW" in result.stdout
+
+
+def test_cli_review_mode_config_file(tmp_path):
+    cfg_file = tmp_path / "custom_config.toml"
+    cfg_file.write_text("[review]\nshow_body = true\n")
+
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Soccer Practice Update",
+                sender=Sender(name="Coach Dave", email="coach@ayso.org"),
+                date="Fri, 21 Aug 2026",
+                body_text=(
+                    "Practice is on Thursday at 5pm at Field 3. "
+                    "Please bring extra water bottles for the scrimmage. "
+                    "Coach Dave will lead the warm-up exercises. "
+                    "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW."
+                ),
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+        result = runner.invoke(app, ["review", "--config", str(cfg_file)], input="y\n")
+        assert result.exit_code == 0
+        assert "Conversation Thread" in result.stdout
+        assert "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW" in result.stdout
+
+
+def test_cli_review_mode_override_config_no_show_body(tmp_path):
+    cfg_file = tmp_path / "custom_config.toml"
+    cfg_file.write_text("[review]\nshow_body = true\n")
+
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Soccer Practice Update",
+                sender=Sender(name="Coach Dave", email="coach@ayso.org"),
+                date="Fri, 21 Aug 2026",
+                body_text=(
+                    "Practice is on Thursday at 5pm at Field 3. "
+                    "Please bring extra water bottles for the scrimmage. "
+                    "Coach Dave will lead the warm-up exercises. "
+                    "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW."
+                ),
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+        result = runner.invoke(app, ["review", "--config", str(cfg_file), "--no-show-body"], input="y\n")
+        assert result.exit_code == 0
+        assert "Conversation Thread" not in result.stdout
+        assert "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW" not in result.stdout
+
+
+def test_cli_review_mode_interactive_view():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Soccer Practice Update",
+                sender=Sender(name="Coach Dave", email="coach@ayso.org"),
+                date="Fri, 21 Aug 2026",
+                body_text=(
+                    "Practice is on Thursday at 5pm at Field 3. "
+                    "Please bring extra water bottles for the scrimmage. "
+                    "Coach Dave will lead the warm-up exercises. "
+                    "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW."
+                ),
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+        # User presses 'v' to view, then 'y' to mark as read
+        result = runner.invoke(app, ["review"], input="v\ny\n")
+        assert result.exit_code == 0
+        assert "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW" in result.stdout
+        assert "Marked thread as read" in result.stdout
+
+
+def test_cli_agent_dry_run():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Soccer Practice",
+                sender=Sender(name="Coach", email="coach@ayso.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Practice on Thursday.",
+            )
+        ]
+        result = runner.invoke(app, ["agent", "--dry-run"])
+        assert result.exit_code == 0
+        assert "You are an intelligent email triage assistant" in result.stdout
+        assert '"total_unread": 1' in result.stdout
+
+
+def test_cli_agent_empty_inbox():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = []
+        instance.list_unread_messages.return_value = []
+        result = runner.invoke(app, ["agent"])
+        assert result.exit_code == 0
+        assert "Inbox Zero" in result.stdout
+
+
+def test_cli_agent_confirm_and_apply():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls, \
+         patch("inbox_zero.cli.run_agent") as mock_run_agent:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Math HW",
+                sender=Sender(name="Teacher", email="teacher@school.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Homework is due.",
+            )
+        ]
+        mock_run_agent.return_value = {
+            "reasoning": "Teacher message acknowledged.",
+            "replies": [{"message_id": "m1", "body": "Thank you!"}],
+            "calendar_events": [{"summary": "HW Due", "start_time": "2026-08-25"}],
+            "mark_as_read": ["t1"],
+        }
+        instance.send_reply.return_value = True
+        instance.insert_calendar_event.return_value = {"id": "ev_1"}
+        instance.mark_thread_as_read.return_value = True
+
+        result = runner.invoke(app, ["agent", "--provider", "claude"], input="y\n")
+        assert result.exit_code == 0
+        assert "AI Agent Proposed Decisions" in result.stdout
+        assert "Teacher message acknowledged" in result.stdout
+        assert "Replies Sent: 1" in result.stdout
+        assert "Calendar Events Added: 1" in result.stdout
+        assert "Marked as Read: 1" in result.stdout
+
+
+def test_cli_agent_auto_apply_yes():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls, \
+         patch("inbox_zero.cli.run_agent") as mock_run_agent:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Math HW",
+                sender=Sender(name="Teacher", email="teacher@school.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Homework is due.",
+            )
+        ]
+        mock_run_agent.return_value = {
+            "reasoning": "Quick reply",
+            "replies": [{"message_id": "m1", "body": "Thank you!"}],
+            "calendar_events": [],
+            "mark_as_read": ["m1"],
+        }
+        instance.send_reply.return_value = True
+        instance.mark_thread_as_read.return_value = True
+
+        # Note no input supplied because --yes auto applies
+        result = runner.invoke(app, ["agent", "--yes", "--provider", "codex"])
+        assert result.exit_code == 0
+        assert "Execution Complete" in result.stdout
+        assert "Replies Sent: 1" in result.stdout
+
+
+def test_cli_agent_error_handling():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls, \
+         patch("inbox_zero.cli.run_agent") as mock_run_agent:
+        from inbox_zero.agent_bridge import AgentExecutionError
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Math HW",
+                sender=Sender(name="Teacher", email="teacher@school.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Homework is due.",
+            )
+        ]
+        mock_run_agent.side_effect = AgentExecutionError("CLI not found")
+
+        result = runner.invoke(app, ["agent"])
+        assert result.exit_code == 1
+        assert "Agent execution failed" in result.stdout
+
+
+def test_cli_no_args_shows_help():
+    result = runner.invoke(app, [])
+    # Typer with no_args_is_help=True prints help and exits with 0 or 2
+    assert "Usage: inbox-zero" in result.stdout or "Usage:" in result.stdout
+    assert "Commands" in result.stdout or "Options" in result.stdout
+    assert "scan" in result.stdout
+    assert "review" in result.stdout
+    assert "agent" in result.stdout
+
+
+
