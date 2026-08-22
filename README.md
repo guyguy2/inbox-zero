@@ -177,54 +177,7 @@ print("Execution Results:", results)
 
 Run the full offline test suite:
 ```bash
-uv run pytest -v
-```
-
-Output:
-```text
-tests/test_agent_bridge.py::test_prepare_agent_triage_payload PASSED
-tests/test_agent_bridge.py::test_apply_agent_decisions PASSED
-tests/test_analyzer.py::test_categorization PASSED
-tests/test_analyzer.py::test_is_disclaimer PASSED
-tests/test_analyzer.py::test_is_automated_sender PASSED
-tests/test_analyzer.py::test_action_item_extraction PASSED
-tests/test_analyzer.py::test_date_extraction_various_formats PASSED
-tests/test_analyzer.py::test_suggest_replies_teacher PASSED
-tests/test_analyzer.py::test_suggest_replies_sports_coach PASSED
-tests/test_analyzer.py::test_suggest_replies_automated_skipped PASSED
-tests/test_analyzer.py::test_analyze_email_full PASSED
-tests/test_cli.py::test_cli_scan_auth_failure PASSED
-tests/test_cli.py::test_cli_scan_empty PASSED
-tests/test_cli.py::test_cli_scan_with_messages PASSED
-tests/test_cli.py::test_cli_scan_json PASSED
-tests/test_cli.py::test_cli_mark_read_subcommand PASSED
-tests/test_cli.py::test_cli_review_mode_mark_read PASSED
-tests/test_cli.py::test_cli_review_mode_quit PASSED
-tests/test_client.py::test_ensure_authenticated_success PASSED
-tests/test_client.py::test_ensure_authenticated_failure_invalid_token PASSED
-tests/test_client.py::test_ensure_authenticated_failure_exit_code_2 PASSED
-tests/test_client.py::test_list_unread_messages_success PASSED
-tests/test_client.py::test_get_message_success PASSED
-tests/test_client.py::test_mark_as_read_success PASSED
-tests/test_client.py::test_mark_multiple_as_read PASSED
-tests/test_client.py::test_send_reply_success PASSED
-tests/test_client.py::test_insert_calendar_event PASSED
-tests/test_client.py::test_client_timeout_error PASSED
-tests/test_client.py::test_client_not_found_error PASSED
-tests/test_client.py::test_client_invalid_json_error PASSED
-tests/test_models.py::test_sender_from_dict PASSED
-tests/test_models.py::test_sender_from_dict_address_fallback PASSED
-tests/test_models.py::test_sender_from_formatted_string PASSED
-tests/test_models.py::test_sender_from_plain_string PASSED
-tests/test_models.py::test_sender_from_invalid PASSED
-tests/test_models.py::test_calendar_event_suggestion_model PASSED
-tests/test_models.py::test_triage_batch_json_serialization PASSED
-tests/test_parser.py::test_clean_html PASSED
-tests/test_parser.py::test_extract_clean_email_body_fallback PASSED
-tests/test_parser.py::test_sender_parsing PASSED
-tests/test_parser.py::test_truncate_preview PASSED
-
-============================== 41 passed in 0.13s ==============================
+uv run pytest
 ```
 
 ---
