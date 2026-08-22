@@ -1,7 +1,7 @@
 [project]
 name = "inbox-zero"
 version = "0.1.0"
-description = "Add your description here"
+description = "Deterministic email triage, thread summaries, action items, contextual replies & calendar scheduling via Google Workspace CLI (gws)"
 readme = "README.md"
 authors = [
     { name = "Guy", email = "guylevi@hotmail.com" }
