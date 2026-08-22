@@ -115,6 +115,16 @@ def extract_dates_and_events(subject: str, body: str, ref_date_str: str | None =
 
                 event_title = f"{clean_snippet}"
 
+                # Extract location if mentioned (e.g. 'at Wood Oaks Field 3' or 'in School Gym')
+                loc = None
+                at_match = re.search(r"\bat\s+([A-Z][A-Za-z0-9\s,\-]{2,40}?)(?:\.|\s+in\b|$)", line_clean)
+                if at_match and not re.search(r"^\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)", at_match.group(1).strip(), re.IGNORECASE):
+                    loc = at_match.group(1).strip().rstrip(".,")
+                if not loc:
+                    in_match = re.search(r"\bin\s+(?:the\s+)?([A-Z][A-Za-z0-9\s,\-]{2,40}?)(?:\.|$)", line_clean)
+                    if in_match:
+                        loc = in_match.group(1).strip().rstrip(".,")
+
                 if date_text not in seen_summaries:
                     seen_summaries.add(date_text)
                     events.append(
@@ -122,6 +132,7 @@ def extract_dates_and_events(subject: str, body: str, ref_date_str: str | None =
                             summary=event_title,
                             start_time=date_text + (f" ({time_info})" if time_info and time_info not in date_text else ""),
                             description=line_clean,
+                            location=loc,
                         )
                     )
 

@@ -133,6 +133,32 @@ def test_insert_calendar_event():
             location="Wood Oaks Field 3",
         )
         assert res["id"] == "event_999"
+        cmd = mock_run.call_args[0][0]
+        assert "--start" in cmd
+        assert "--end" in cmd
+        assert "--location" in cmd
+
+
+def test_insert_calendar_event_start_only_and_natural_date():
+    client = GWSClient()
+    mock_event = {"id": "event_100", "summary": "Picture day"}
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(mock_event), stderr="")
+        res = client.insert_calendar_event(
+            summary="Picture day is Wednesday, September 23",
+            start_time="Wednesday, September 23",
+            description="School picture day",
+        )
+        assert res["id"] == "event_100"
+        cmd = mock_run.call_args[0][0]
+        assert "--start" in cmd
+        assert "--end" in cmd
+        # Verify --end was provided and both are valid ISO format (default 30 min duration)
+        start_idx = cmd.index("--start") + 1
+        end_idx = cmd.index("--end") + 1
+        assert "09-23T09:00:00" in cmd[start_idx]
+        assert "09-23T09:30:00" in cmd[end_idx]
+
 
 
 def test_client_timeout_error():

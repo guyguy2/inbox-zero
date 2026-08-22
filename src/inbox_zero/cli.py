@@ -559,7 +559,9 @@ def review(
                                 client.insert_calendar_event(
                                     summary=ev.summary,
                                     start_time=ev.start_time,
+                                    end_time=ev.end_time,
                                     description=ev.description or "",
+                                    location=ev.location or "",
                                 )
                                 console.print(f"[green]✓ Added to Google Calendar![/green]")
                             except Exception as e:

@@ -12,6 +12,7 @@ from inbox_zero.parser import (
     decode_base64url,
     extract_attachment_metadata,
     extract_clean_email_body,
+    normalize_event_datetimes,
     parse_attachment_bytes,
 )
 
@@ -344,8 +345,11 @@ class GWSClient:
         end_time: str | None = None,
         description: str = "",
         location: str = "",
+        calendar_id: str = "primary",
+        ref_date: Any = None,
     ) -> dict[str, Any]:
-        """Insert an event into Google Calendar."""
+        """Insert an event into Google Calendar via gws calendar +insert."""
+        clean_start, clean_end = normalize_event_datetimes(start_time, end_time, ref_date=ref_date)
         cmd = [
             "gws",
             "calendar",
@@ -353,10 +357,12 @@ class GWSClient:
             "--summary",
             summary,
             "--start",
-            start_time,
+            clean_start,
+            "--end",
+            clean_end,
         ]
-        if end_time:
-            cmd.extend(["--end", end_time])
+        if calendar_id and calendar_id != "primary":
+            cmd.extend(["--calendar", calendar_id])
         if description:
             cmd.extend(["--description", description])
         if location:

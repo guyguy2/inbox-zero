@@ -3,8 +3,11 @@ from inbox_zero.parser import (
     decode_base64url,
     extract_attachment_metadata,
     extract_clean_email_body,
+    normalize_event_datetimes,
     parse_attachment_bytes,
     parse_email_date,
+    parse_single_time,
+    parse_time_span,
     truncate_preview,
 )
 from inbox_zero.models import Sender
@@ -134,5 +137,59 @@ def test_parse_attachment_bytes_pdf():
     # Even with blank page, it should parse without crashing
     text = parse_attachment_bytes(pdf_bytes, "blank.pdf", "application/pdf")
     assert isinstance(text, str)
+
+
+def test_parse_time_span():
+    assert parse_time_span("Thursday from 5:00-6:30pm") == (17, 0, 18, 30)
+    assert parse_time_span("4:30 - 6:30 pm") == (16, 30, 18, 30)
+    assert parse_time_span("9:00am - 10:00am") == (9, 0, 10, 0)
+    assert parse_time_span("1:00 to 2:30 pm") == (13, 0, 14, 30)
+    assert parse_time_span("2026-09-23") is None
+    assert parse_time_span("") is None
+
+
+def test_parse_single_time():
+    assert parse_single_time("at 9:30am") == (9, 30)
+    assert parse_single_time("5:00 PM") == (17, 0)
+    assert parse_single_time("14:30") == (14, 30)
+    assert parse_single_time("noon") is None
+    assert parse_single_time("") is None
+
+
+def test_normalize_event_datetimes_natural_language():
+    start, end = normalize_event_datetimes("Wednesday, September 23", ref_date="Fri, 21 Aug 2026")
+    assert "2026-09-23T09:00:00" in start
+    assert "2026-09-23T09:30:00" in end
+
+    start, end = normalize_event_datetimes("Back to school night is Wednesday, Sept. 9 at 9:30am", ref_date="2026-08-21")
+    assert "2026-09-09T09:30:00" in start
+    assert "2026-09-09T10:00:00" in end
+
+
+def test_normalize_event_datetimes_time_span():
+    start, end = normalize_event_datetimes(
+        "Thursday, August 27, 2026 from 5:00-6:30pm at Wood Oaks Field 3",
+        ref_date="2026-08-21",
+    )
+    assert "2026-08-27T17:00:00" in start
+    assert "2026-08-27T18:30:00" in end
+
+
+def test_normalize_event_datetimes_iso_input():
+    start, end = normalize_event_datetimes("2026-08-27T17:00:00-05:00", "2026-08-27T18:30:00-05:00")
+    assert start == "2026-08-27T17:00:00-05:00"
+    assert end == "2026-08-27T18:30:00-05:00"
+
+    # Start only ISO (defaults to 30 min duration with timezone attached)
+    start, end = normalize_event_datetimes("2026-08-27T17:00:00")
+    assert "2026-08-27T17:00:00" in start
+    assert "2026-08-27T17:30:00" in end
+
+
+def test_normalize_event_datetimes_empty():
+    import pytest
+    with pytest.raises(ValueError, match="cannot be empty"):
+        normalize_event_datetimes("")
+
 
 

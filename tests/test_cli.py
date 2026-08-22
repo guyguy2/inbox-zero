@@ -342,6 +342,9 @@ def test_cli_review_mode_calendar():
         assert result.exit_code == 0
         assert "Added to Google Calendar" in result.stdout
         assert "Thread marked as read" in result.stdout
+        instance.insert_calendar_event.assert_called_once()
+        call_kwargs = instance.insert_calendar_event.call_args[1]
+        assert "Sept. 9" in call_kwargs["start_time"] or "09-09" in call_kwargs["start_time"]
 
 
 def test_cli_review_mode_default_hides_body():
