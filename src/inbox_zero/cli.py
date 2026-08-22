@@ -380,6 +380,7 @@ def review(
             thread_section = f"\n---\n### 🧵 Conversation Thread\n\n{messages_block}\n" if display_body else ""
 
             body_content = f"""
+**Subject:** **{item.subject}**
 **Participants:** {participants_str}
 **Category:** {item.category} | **Thread Size:** {item.message_count} message(s) ({item.unread_count} unread)
 {thread_section}
