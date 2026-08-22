@@ -4,6 +4,8 @@ from inbox_zero.analyzer import (
     extract_action_items,
     extract_dates_and_events,
     suggest_replies,
+    is_disclaimer,
+    is_automated_sender,
     analyze_email,
 )
 from inbox_zero.models import EmailMessage, Sender
@@ -14,20 +16,52 @@ def test_categorization():
     assert categorize_email("5th Grade Math", "teacher@nb27.org", "Mrs. Patel", "Math homework") == "School & Kids"
     assert categorize_email("Weekly Newsletter", "news@shabonee.org", "School", "Digest") == "School & Kids"
     assert categorize_email("Invoice for Order #123", "billing@aws.com", "AWS", "Your bill is $50") == "Finance & Bills"
+    assert categorize_email("Security Alert: New Sign-in", "security@google.com", "Google", "Sign-in alert") == "Security & Account"
+    assert categorize_email("Hello friend", "friend@gmail.com", "Friend", "How are you?") == "General"
+
+
+def test_is_disclaimer():
+    assert is_disclaimer("If you are not the intended recipient, please contact the sender and destroy all copies.") is True
+    assert is_disclaimer("This email message is intended only for the person to whom it is addressed.") is True
+    assert is_disclaimer("Get Outlook for Android") is True
+    assert is_disclaimer("Please bring your soccer ball tomorrow.") is False
+
+
+def test_is_automated_sender():
+    assert is_automated_sender("noreply@nb27.org") is True
+    assert is_automated_sender("notifications@instructure.com") is True
+    assert is_automated_sender("teacher@nb27.org") is False
 
 
 def test_action_item_extraction():
-    body = "Please bring shin guards and a soccer ball to practice. Also don't forget to fill out the emergency contact form."
+    body = (
+        "Please bring shin guards and a soccer ball to practice.\n"
+        "Also don't forget to fill out the emergency contact form.\n"
+        "- [ ] Pay the activity registration fee\n"
+        "* Submit the health form\n"
+        "• Bring 2 water bottles\n"
+        "If you are not the intended recipient, please contact the sender and destroy all copies.\n"
+    )
     actions = extract_action_items(body)
     assert any("shin guards" in a.lower() for a in actions)
     assert any("emergency contact form" in a.lower() for a in actions)
+    assert any("registration fee" in a.lower() for a in actions)
+    assert any("health form" in a.lower() for a in actions)
+    assert any("water bottles" in a.lower() for a in actions)
+    # Ensure disclaimer is excluded
+    assert not any("destroy all copies" in a.lower() for a in actions)
 
 
-def test_date_extraction():
-    body = "The chorus meets on Tuesday at 8:00 AM. Our first rehearsal is August 25, 2026."
-    events = extract_dates_and_events("Chorus Schedule", body)
-    assert len(events) >= 1
-    assert any("August 25" in e.start_time or "Tuesday" in e.start_time for e in events)
+def test_date_extraction_various_formats():
+    body = (
+        "First practice: Thursday, August 27, 2026 from 5:00-6:30pm at Wood Oaks Field 3.\n"
+        "Back to school night is Wednesday, Sept. 9 at 9:30am.\n"
+        "Meeting on 08/21/2026.\n"
+    )
+    events = extract_dates_and_events("Fall Schedule", body)
+    assert len(events) >= 2
+    assert any("August 27" in e.start_time or "5:00" in e.start_time for e in events)
+    assert any("Sept" in e.start_time or "September" in e.start_time for e in events)
 
 
 def test_suggest_replies_teacher():
@@ -42,6 +76,20 @@ def test_suggest_replies_teacher():
     replies = suggest_replies(msg, "School & Kids")
     assert len(replies) > 0
     assert any("Roshani" in r or "Thank you" in r for r in replies)
+
+
+def test_suggest_replies_sports_coach():
+    msg = EmailMessage(
+        id="125",
+        thread_id="t3",
+        subject="AYSO Soccer Info",
+        sender=Sender(name="Coach Mike", email="mike@ayso.org"),
+        date="Fri, 21 Aug 2026",
+        body_text="Welcome to the soccer team! First practice is next Thursday.",
+    )
+    replies = suggest_replies(msg, "Sports & Activities")
+    assert len(replies) > 0
+    assert any("Coach" in r or "practice" in r for r in replies)
 
 
 def test_suggest_replies_automated_skipped():

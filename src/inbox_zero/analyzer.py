@@ -125,13 +125,25 @@ def extract_dates_and_events(subject: str, body: str, ref_date_str: str | None =
                         )
                     )
 
-    return events[:6]
+    return events[:8]
 
 
 def extract_action_items(body: str) -> list[str]:
     """Extract actionable tasks from the email body text."""
     actions: list[str] = []
     seen: set[str] = set()
+
+    # Look for bullet points with action items first
+    for line in body.splitlines():
+        line_s = line.strip()
+        if is_disclaimer(line_s):
+            continue
+        if (line_s.startswith("- [ ]") or line_s.startswith("- ") or line_s.startswith("* ") or line_s.startswith("• ")) and len(line_s) > 10:
+            item = line_s.lstrip("-*• [ ]").strip()
+            item = re.sub(r"\s+", " ", item).rstrip(".:,;")
+            if 10 < len(item) < 120 and item.lower() not in seen and not is_disclaimer(item):
+                seen.add(item.lower())
+                actions.append(item)
 
     for pattern in ACTION_TRIGGERS:
         for match in re.finditer(pattern, body, re.IGNORECASE):
@@ -141,22 +153,14 @@ def extract_action_items(body: str) -> list[str]:
             # Clean up action text
             action_text = re.sub(r"\s+", " ", action_text)
             action_text = action_text.rstrip(".:,;")
-            if 10 < len(action_text) < 120 and action_text.lower() not in seen:
-                seen.add(action_text.lower())
+            lower_val = action_text.lower()
+            
+            # Avoid adding substring subsets of already added actions
+            if 10 < len(action_text) < 120 and not any(lower_val in existing for existing in seen):
+                seen.add(lower_val)
                 actions.append(action_text)
 
-    # Look for bullet points with action items
-    for line in body.splitlines():
-        line_s = line.strip()
-        if is_disclaimer(line_s):
-            continue
-        if (line_s.startswith("- [ ]") or line_s.startswith("* ") or line_s.startswith("• ")) and len(line_s) > 10:
-            item = line_s.lstrip("-*• [ ]").strip()
-            if len(item) < 120 and item.lower() not in seen and not is_disclaimer(item):
-                seen.add(item.lower())
-                actions.append(item)
-
-    return actions[:6]
+    return actions[:8]
 
 
 def suggest_replies(message: EmailMessage, category: str) -> list[str]:
