@@ -1,0 +1,167 @@
+"""Deterministic Google Workspace CLI (gws) wrapper client."""
+
+from __future__ import annotations
+
+import json
+import logging
+import subprocess
+from typing import Any
+
+from inbox_zero.models import EmailMessage, Sender
+from inbox_zero.parser import extract_clean_email_body
+
+logger = logging.getLogger(__name__)
+
+
+class GWSClientError(Exception):
+    """Exception raised for errors executing gws commands."""
+    pass
+
+
+class GWSClient:
+    """Wrapper client around gws CLI."""
+
+    def __init__(self, timeout: int = 30) -> None:
+        self.timeout = timeout
+
+    def _run_cmd(self, cmd: list[str], input_data: str | None = None) -> Any:
+        """Run a gws CLI command and parse JSON output."""
+        logger.debug("Running command: %s", " ".join(cmd))
+        try:
+            result = subprocess.run(
+                cmd,
+                input=input_data,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise GWSClientError("gws CLI is not installed or not in PATH.") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise GWSClientError(f"Command timed out after {self.timeout}s: {' '.join(cmd)}") from exc
+
+        if result.returncode != 0:
+            err_msg = result.stderr.strip() or f"Command failed with exit code {result.returncode}"
+            logger.error("gws command failed: %s | stderr: %s", " ".join(cmd), err_msg)
+            raise GWSClientError(f"gws error: {err_msg}")
+
+        stdout = result.stdout.strip()
+        if not stdout:
+            return None
+
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to decode JSON from gws: %s", stdout)
+            raise GWSClientError(f"Invalid JSON returned from gws: {stdout[:200]}") from exc
+
+    def list_unread_messages(self, max_results: int = 20, query: str = "is:unread") -> list[dict[str, Any]]:
+        """List unread messages using gws gmail +triage."""
+        cmd = [
+            "gws",
+            "gmail",
+            "+triage",
+            "--max",
+            str(max_results),
+            "--query",
+            query,
+            "--format",
+            "json",
+        ]
+        data = self._run_cmd(cmd)
+        if isinstance(data, dict):
+            return data.get("messages", [])
+        if isinstance(data, list):
+            return data
+        return []
+
+    def get_message(self, message_id: str) -> EmailMessage:
+        """Read a message and return parsed EmailMessage."""
+        cmd = [
+            "gws",
+            "gmail",
+            "+read",
+            "--id",
+            message_id,
+            "--headers",
+            "--format",
+            "json",
+        ]
+        raw = self._run_cmd(cmd)
+        if not isinstance(raw, dict):
+            raise GWSClientError(f"Unexpected response fetching message {message_id}: {raw}")
+
+        sender = Sender.from_gws(raw.get("from"))
+        body_text = raw.get("body_text") or ""
+        body_html = raw.get("body_html")
+        cleaned_body = extract_clean_email_body(body_text, body_html)
+
+        return EmailMessage(
+            id=message_id,
+            thread_id=raw.get("thread_id") or message_id,
+            subject=raw.get("subject") or "(No Subject)",
+            sender=sender,
+            date=raw.get("date") or "",
+            body_text=cleaned_body,
+            body_html=body_html,
+            snippet=raw.get("snippet"),
+            is_unread=True,
+        )
+
+    def mark_as_read(self, message_id: str) -> bool:
+        """Mark a message as read by removing the UNREAD label."""
+        cmd = [
+            "gws",
+            "gmail",
+            "users",
+            "messages",
+            "modify",
+            "--params",
+            json.dumps({"userId": "me", "id": message_id}),
+            "--json",
+            json.dumps({"removeLabelIds": ["UNREAD"]}),
+        ]
+        try:
+            res = self._run_cmd(cmd)
+            return bool(res and "id" in res)
+        except Exception as e:
+            logger.error("Failed to mark message %s as read: %s", message_id, e)
+            return False
+
+    def mark_multiple_as_read(self, message_ids: list[str]) -> dict[str, bool]:
+        """Mark multiple messages as read."""
+        results: dict[str, bool] = {}
+        for mid in message_ids:
+            results[mid] = self.mark_as_read(mid)
+        return results
+
+    def insert_calendar_event(
+        self,
+        summary: str,
+        start_time: str,
+        end_time: str | None = None,
+        description: str = "",
+        location: str = "",
+    ) -> dict[str, Any]:
+        """Insert an event into Google Calendar."""
+        cmd = [
+            "gws",
+            "calendar",
+            "+insert",
+            "--summary",
+            summary,
+            "--start",
+            start_time,
+        ]
+        if end_time:
+            cmd.extend(["--end", end_time])
+        if description:
+            cmd.extend(["--description", description])
+        if location:
+            cmd.extend(["--location", location])
+
+        res = self._run_cmd(cmd)
+        if isinstance(res, dict):
+            return res
+        return {"status": "ok", "raw": res}
