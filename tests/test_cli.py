@@ -154,6 +154,101 @@ def test_cli_review_mode_reply():
         assert "Thread marked as read" in result.stdout
 
 
+def test_cli_review_mode_reply_custom():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Ben's First Day",
+                sender=Sender(name="Roshani Patel", email="patel.r@nb27.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Ben had a great day!",
+            )
+        ]
+        instance.send_reply.return_value = True
+        instance.mark_thread_as_read.return_value = True
+        # Input 'r' (reply), then 'c' (custom), then custom text, then 'y' (mark read)
+        result = runner.invoke(app, ["review"], input="r\nc\nSounds wonderful, thank you!\ny\n")
+        assert result.exit_code == 0
+        instance.send_reply.assert_called_with("m1", "Sounds wonderful, thank you!")
+        assert "Reply sent to thread" in result.stdout
+        assert "Thread marked as read" in result.stdout
+
+
+def test_cli_review_mode_reply_edit():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Ben's First Day",
+                sender=Sender(name="Roshani Patel", email="patel.r@nb27.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Ben had a great day!",
+            )
+        ]
+        instance.send_reply.return_value = True
+        instance.mark_thread_as_read.return_value = True
+        # Input 'r' (reply), then 'e' (edit), then input modified text, then 'y' (mark read)
+        result = runner.invoke(app, ["review"], input="r\ne\nThank you for letting us know!\ny\n")
+        assert result.exit_code == 0
+        instance.send_reply.assert_called_with("m1", "Thank you for letting us know!")
+        assert "Reply sent to thread" in result.stdout
+
+
+def test_cli_review_mode_reply_add_text():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Ben's First Day",
+                sender=Sender(name="Roshani Patel", email="patel.r@nb27.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Ben had a great day!",
+            )
+        ]
+        instance.send_reply.return_value = True
+        instance.mark_thread_as_read.return_value = True
+        # Input 'r' (reply), then 'a' (add text), then extra text, then 'y' (mark read)
+        result = runner.invoke(app, ["review"], input="r\na\nSee you tomorrow.\ny\n")
+        assert result.exit_code == 0
+        assert instance.send_reply.call_count == 1
+        sent_body = instance.send_reply.call_args[0][1]
+        assert "See you tomorrow." in sent_body
+        assert "Reply sent to thread" in result.stdout
+
+
+def test_cli_review_mode_reply_cancel():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Ben's First Day",
+                sender=Sender(name="Roshani Patel", email="patel.r@nb27.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Ben had a great day!",
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+        # Input 'r' (reply), then 's' (cancel reply), then 'y' (mark read)
+        result = runner.invoke(app, ["review"], input="r\ns\ny\n")
+        assert result.exit_code == 0
+        instance.send_reply.assert_not_called()
+        assert "Reply cancelled" in result.stdout
+        assert "Marked thread as read" in result.stdout
+
+
 def test_cli_review_mode_calendar():
     with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
         instance = mock_client_cls.return_value

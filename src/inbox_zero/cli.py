@@ -439,7 +439,9 @@ def review(
                         console.print("\n[bold]Choose a suggested reply or enter custom text:[/bold]")
                         for r_idx, r in enumerate(item.suggested_replies, 1):
                             console.print(f"  [{r_idx}] {r}")
-                        console.print("  [c] Custom reply")
+                        console.print("  [e] Edit suggested reply (modify or add text)")
+                        console.print("  [a] Add custom text to suggested reply")
+                        console.print("  [c] Custom reply (write from scratch)")
                         console.print("  [s / Esc] Skip reply")
                         
                         console.print("Select reply option [1]: ", end="")
@@ -450,15 +452,31 @@ def review(
                             reply_text = item.suggested_replies[0]
                         elif sub_choice.isdigit() and 1 <= int(sub_choice) <= len(item.suggested_replies):
                             reply_text = item.suggested_replies[int(sub_choice) - 1]
+                        elif sub_choice in ("e", "edit"):
+                            reply_text = typer.prompt("Edit reply text", default=item.suggested_replies[0])
+                        elif sub_choice.startswith("e") and sub_choice[1:].isdigit() and 1 <= int(sub_choice[1:]) <= len(item.suggested_replies):
+                            target_idx = int(sub_choice[1:]) - 1
+                            reply_text = typer.prompt(f"Edit reply text (option {target_idx + 1})", default=item.suggested_replies[target_idx])
+                        elif sub_choice in ("a", "add", "append"):
+                            extra = typer.prompt("Enter text to add to suggested reply")
+                            reply_text = f"{item.suggested_replies[0]} {extra}".strip() if extra.strip() else item.suggested_replies[0]
+                        elif sub_choice.startswith("a") and sub_choice[1:].isdigit() and 1 <= int(sub_choice[1:]) <= len(item.suggested_replies):
+                            target_reply = item.suggested_replies[int(sub_choice[1:]) - 1]
+                            extra = typer.prompt(f"Enter text to add to suggested reply {sub_choice[1:]}")
+                            reply_text = f"{target_reply} {extra}".strip() if extra.strip() else target_reply
                         elif sub_choice in ("c", "custom"):
-                            reply_text = typer.prompt("Enter reply text")
+                            reply_text = typer.prompt("Enter custom reply text")
                         elif sub_choice in ("s", "esc", "q"):
                             console.print("[dim]Reply cancelled.[/dim]")
                             continue
+                        else:
+                            console.print(f"[yellow]Unknown option '{sub_choice}'. Reply cancelled.[/yellow]")
+                            continue
                     else:
-                        reply_text = typer.prompt("Enter reply text")
+                        reply_text = typer.prompt("Enter custom reply text")
 
-                    if reply_text:
+                    if reply_text and reply_text.strip():
+                        reply_text = reply_text.strip()
                         try:
                             if client.send_reply(item.message_id, reply_text):
                                 console.print(f"[green]✓ Reply sent to thread![/green]")
@@ -472,8 +490,11 @@ def review(
                                 console.print(f"[red]✗ Failed to send reply.[/red]")
                         except Exception as e:
                             console.print(f"[red]Error sending reply: {e}[/red]")
-                    idx += 1
-                    break
+                        idx += 1
+                        break
+                    else:
+                        console.print("[dim]No reply text provided. Reply cancelled.[/dim]")
+                        continue
 
                 if choice in ("c", "cal", "calendar"):
                     if not item.calendar_events:
