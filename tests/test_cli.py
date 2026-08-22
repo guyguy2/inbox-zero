@@ -712,6 +712,100 @@ def test_cli_review_chunking_over_ten():
         assert "All 12 unread email threads reviewed" in result.stdout
 
 
+def test_cli_scan_date_descending_order():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}, {"id": "t2"}, {"id": "t3"}]
+        instance.get_thread.side_effect = [
+            [
+                EmailMessage(
+                    id="m1",
+                    thread_id="t1",
+                    subject="Oldest Thread",
+                    sender=Sender(name="Alice", email="alice@example.com"),
+                    date="Wed, 19 Aug 2026 10:00:00 -0500",
+                    body_text="Oldest email",
+                )
+            ],
+            [
+                EmailMessage(
+                    id="m2",
+                    thread_id="t2",
+                    subject="Newest Thread",
+                    sender=Sender(name="Bob", email="bob@example.com"),
+                    date="Sat, 22 Aug 2026 10:00:00 -0500",
+                    body_text="Newest email",
+                )
+            ],
+            [
+                EmailMessage(
+                    id="m3",
+                    thread_id="t3",
+                    subject="Middle Thread",
+                    sender=Sender(name="Charlie", email="charlie@example.com"),
+                    date="Thu, 20 Aug 2026 10:00:00 -0500",
+                    body_text="Middle email",
+                )
+            ],
+        ]
+
+        result = runner.invoke(app, ["scan", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        # Should be ordered newest (t2) -> middle (t3) -> oldest (t1)
+        assert [it["thread_id"] for it in data["items"]] == ["t2", "t3", "t1"]
+
+
+def test_cli_review_date_descending_order():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}, {"id": "t2"}, {"id": "t3"}]
+        instance.get_thread.side_effect = [
+            [
+                EmailMessage(
+                    id="m1",
+                    thread_id="t1",
+                    subject="Oldest Thread",
+                    sender=Sender(name="Alice", email="alice@example.com"),
+                    date="Wed, 19 Aug 2026 10:00:00 -0500",
+                    body_text="Oldest email",
+                )
+            ],
+            [
+                EmailMessage(
+                    id="m2",
+                    thread_id="t2",
+                    subject="Newest Thread",
+                    sender=Sender(name="Bob", email="bob@example.com"),
+                    date="Sat, 22 Aug 2026 10:00:00 -0500",
+                    body_text="Newest email",
+                )
+            ],
+            [
+                EmailMessage(
+                    id="m3",
+                    thread_id="t3",
+                    subject="Middle Thread",
+                    sender=Sender(name="Charlie", email="charlie@example.com"),
+                    date="Thu, 20 Aug 2026 10:00:00 -0500",
+                    body_text="Middle email",
+                )
+            ],
+        ]
+        instance.mark_thread_as_read.return_value = True
+
+        # Input 3 'y' to mark each as read
+        result = runner.invoke(app, ["review"], input="y\ny\ny\n")
+        assert result.exit_code == 0
+        # Check order of appearance in stdout: Newest Thread -> Middle Thread -> Oldest Thread
+        pos_newest = result.stdout.find("Newest Thread")
+        pos_middle = result.stdout.find("Middle Thread")
+        pos_oldest = result.stdout.find("Oldest Thread")
+        assert pos_newest != -1 and pos_middle != -1 and pos_oldest != -1
+        assert pos_newest < pos_middle < pos_oldest
+
+
+
 
 
 

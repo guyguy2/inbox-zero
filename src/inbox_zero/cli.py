@@ -24,6 +24,8 @@ from inbox_zero.client import GWSClient, GWSClientError, GWSAuthError
 from inbox_zero.config import load_config
 from inbox_zero.keys import get_single_key
 from inbox_zero.models import EmailMessage, TriageBatch, TriageItem
+from inbox_zero.parser import parse_email_date
+
 
 app = typer.Typer(
     name="inbox-zero",
@@ -124,6 +126,9 @@ def scan(
         else:
             console.print("[green]🎉 Inbox Zero! No unread messages found matching query.[/green]")
         return
+
+    # Sort descending by date (newest first, matching Gmail inbox order)
+    items.sort(key=lambda it: parse_email_date(it.date), reverse=True)
 
     batch = TriageBatch(total_unread=len(items), total_messages=total_messages, items=items)
 
@@ -261,7 +266,31 @@ def review(
         console.print("[green]🎉 Inbox Zero! No unread messages found.[/green]")
         return
 
-    total_threads = len(threads_list)
+    items: list[TriageItem] = []
+    with console.status(f"[bold blue]Loading {len(threads_list)} unread email threads...[/bold blue]"):
+        for t in threads_list:
+            tid = t.get("id")
+            if not tid:
+                continue
+            try:
+                messages = client.get_thread(tid)
+                if not messages:
+                    continue
+                item = analyze_thread(messages)
+                items.append(item)
+            except GWSAuthError as err:
+                _handle_gws_error(err)
+            except Exception as e:
+                console.print(f"[yellow]Warning: Could not process thread {tid}: {e}[/yellow]")
+
+    if not items:
+        console.print("[green]🎉 Inbox Zero! No unread messages found.[/green]")
+        return
+
+    # Sort descending by date (newest first, matching Gmail inbox order)
+    items.sort(key=lambda it: parse_email_date(it.date), reverse=True)
+
+    total_threads = len(items)
     total_batches = (total_threads + 9) // 10
 
     if total_threads > 10:
@@ -310,24 +339,7 @@ def review(
                     continue
 
             prev_idx = idx
-            t = threads_list[idx]
-            tid = t.get("id")
-            if not tid:
-                idx += 1
-                continue
-
-            try:
-                messages = client.get_thread(tid)
-                if not messages:
-                    idx += 1
-                    continue
-                item = analyze_thread(messages)
-            except GWSAuthError as err:
-                _handle_gws_error(err)
-            except Exception as e:
-                console.print(f"[red]Error reading thread {tid}: {e}[/red]")
-                idx += 1
-                continue
+            item = items[idx]
 
             # Format thread participants
             participants_str = ", ".join(f"{s.name or 'Unknown'} <{s.email}>" for s in item.senders)

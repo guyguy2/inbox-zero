@@ -1,9 +1,32 @@
-"""HTML and text cleaning utilities for email content."""
-
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from bs4 import BeautifulSoup
+
+
+def parse_email_date(date_str: str | None) -> datetime:
+    """Parse an email date string (RFC 2822 or ISO) into a timezone-aware datetime for robust sorting."""
+    if not date_str or not str(date_str).strip():
+        return datetime.min.replace(tzinfo=timezone.utc)
+    raw = str(date_str).strip()
+    try:
+        dt = parsedate_to_datetime(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        pass
+    try:
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        pass
+    return datetime.min.replace(tzinfo=timezone.utc)
+
 
 
 def clean_html_to_text(html_content: str) -> str:

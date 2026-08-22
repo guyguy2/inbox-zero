@@ -1,5 +1,9 @@
-import pytest
-from inbox_zero.parser import clean_html_to_text, extract_clean_email_body, truncate_preview
+from inbox_zero.parser import (
+    clean_html_to_text,
+    extract_clean_email_body,
+    parse_email_date,
+    truncate_preview,
+)
 from inbox_zero.models import Sender
 
 
@@ -49,3 +53,21 @@ def test_truncate_preview():
     preview = truncate_preview(text, 50)
     assert len(preview) <= 53
     assert preview.endswith("...")
+
+
+def test_parse_email_date():
+    # RFC 2822 format
+    dt1 = parse_email_date("Fri, 21 Aug 2026 12:48:42 -0500")
+    dt2 = parse_email_date("Fri, 21 Aug 2026 20:25:17 +0000")
+    assert dt1 < dt2
+
+    # ISO format
+    dt3 = parse_email_date("2026-08-22T10:00:00Z")
+    assert dt2 < dt3
+
+    # Empty / Invalid fallback
+    dt_empty = parse_email_date("")
+    dt_none = parse_email_date(None)
+    dt_invalid = parse_email_date("not-a-date")
+    assert dt_empty == dt_none == dt_invalid
+

@@ -12,6 +12,8 @@ from typing import Any
 from inbox_zero.analyzer import analyze_email, analyze_thread
 from inbox_zero.client import GWSClient
 from inbox_zero.models import AgentDecisions, TriageBatch, TriageItem
+from inbox_zero.parser import parse_email_date
+
 
 
 class AgentExecutionError(Exception):
@@ -208,6 +210,9 @@ def prepare_agent_triage_payload(
                 total_messages += 1
             except Exception:
                 continue
+
+    # Sort descending by date (newest first, matching Gmail inbox order)
+    items.sort(key=lambda it: parse_email_date(it.date), reverse=True)
 
     batch = TriageBatch(total_unread=len(items), total_messages=total_messages, items=items)
     return batch.model_dump()
