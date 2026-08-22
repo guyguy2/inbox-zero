@@ -558,5 +558,65 @@ def test_cli_review_mode_previous_navigation():
         assert "Email 2" in result.stdout
 
 
+def test_cli_scan_chunking_over_ten():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        threads = [{"id": f"t{i}"} for i in range(1, 16)]
+        instance.list_unread_threads.return_value = threads
+
+        def make_thread(tid):
+            return [
+                EmailMessage(
+                    id=f"m_{tid}",
+                    thread_id=tid,
+                    subject=f"Subject {tid}",
+                    sender=Sender(name="Teacher", email="teacher@school.org"),
+                    date="Fri, 21 Aug 2026",
+                    body_text=f"Body for {tid}",
+                )
+            ]
+
+        instance.get_thread.side_effect = make_thread
+
+        result = runner.invoke(app, ["scan"], input="\n")
+        assert result.exit_code == 0
+        assert "Page 1/2" in result.stdout
+        assert "Items 1–10 of 15" in result.stdout
+        assert "Page 2/2" in result.stdout
+        assert "Items 11–15 of 15" in result.stdout
+
+
+def test_cli_review_chunking_over_ten():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        threads = [{"id": f"t{i}"} for i in range(1, 13)]
+        instance.list_unread_threads.return_value = threads
+
+        def make_thread(tid):
+            return [
+                EmailMessage(
+                    id=f"m_{tid}",
+                    thread_id=tid,
+                    subject=f"Subject {tid}",
+                    sender=Sender(name="Sender", email="sender@example.com"),
+                    date="Fri, 21 Aug 2026",
+                    body_text=f"Body {tid}",
+                )
+            ]
+
+        instance.get_thread.side_effect = lambda tid: make_thread(tid)
+        instance.mark_thread_as_read.return_value = True
+
+        # Provide 10 'y' (for batch 1), then 'y' (to advance past batch milestone), then 2 'y' (batch 2)
+        simulated_inputs = "y\n" * 13
+        result = runner.invoke(app, ["review"], input=simulated_inputs)
+        assert result.exit_code == 0
+        assert "Batch 1 of 2 Complete" in result.stdout
+        assert "Batch 1/2" in result.stdout
+        assert "Batch 2/2" in result.stdout
+        assert "All 12 unread email threads reviewed" in result.stdout
+
+
+
 
 

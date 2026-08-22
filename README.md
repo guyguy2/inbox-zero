@@ -3,7 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![Package Manager](https://img.shields.io/badge/managed%20by-uv-purple.svg)](https://github.com/astral-sh/uv)
 [![CLI Integration](https://img.shields.io/badge/integration-Google%20Workspace%20CLI%20(gws)-green.svg)](https://github.com/googleworkspace/cli)
-[![Tests](https://img.shields.io/badge/tests-91%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-93%20passed-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > Intelligent, deterministic Email Triage, Action Item Extraction, Contextual Reply Generation, and Google Calendar Scheduling powered by **Google Workspace CLI (`gws`)**, **UV**, and **Pluggable AI Agents (AGY, Claude Code, Codex, Grok)**.
@@ -19,6 +19,7 @@
 - 💬 **Drafts Contextual Smart Replies**: Suggests natural quick replies for human senders (teachers, coaches, colleagues) while ignoring automated newsletters.
 - 🤖 **Pluggable AI Agents (Subscription-Based)**: Plug in **AGY (default)**, **Claude Code**, **Codex**, **Grok**, or any custom CLI agent. Runs directly against your existing CLI tool subscriptions—**no per-token API billing**.
 - 🛡️ **Fails Fast on Auth**: Immediately detects unauthenticated or expired `gws` sessions with clear recovery steps (`gws auth login`).
+- 📦 **10-Item Batching & Pagination**: Automatically chunks emails into batches of 10 in both `scan` (paginated summary tables) and `review` (manageable 10-email milestones).
 
 ---
 
@@ -147,18 +148,18 @@ auto_apply = false
 ## 🛠️ CLI Usage & Workflows
 
 ### 1. Scan Unread Emails (Rich Table View)
-Scan up to 20 unread emails with instant summary, detected action items, calendar suggestions, and draft replies:
+Scan unread emails with instant summaries, detected action items, calendar suggestions, and draft replies. When more than 10 unread emails exist, `scan` automatically paginates tables in chunks of 10:
 ```bash
 uv run inbox-zero scan
 ```
 
 Filter by custom queries or limits:
 ```bash
-uv run inbox-zero scan --limit 10 --query "is:unread from:teacher@nb27.org"
+uv run inbox-zero scan --limit 50 --query "is:unread from:teacher@nb27.org"
 ```
 
 ### 2. Interactive Review Mode
-Step through unread emails one by one with **instant single-keypress triage** and **directional arrow navigation**. By default, review mode displays the **title, summary, action items, calendar events, and suggested replies** without cluttering the screen with full email bodies.
+Step through unread emails one by one with **instant single-keypress triage** and **directional arrow navigation**. When more than 10 unread emails exist, `review` batches threads in chunks of 10 with clear milestone transitions.
 
 ```bash
 uv run inbox-zero review

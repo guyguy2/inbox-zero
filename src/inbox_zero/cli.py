@@ -133,39 +133,96 @@ def scan(
         return
 
     # Render rich summary table
-    table_title = (
-        f"📬 Unread Emails Triage ({len(items)} threads / {total_messages} messages)"
-        if total_messages > len(items)
-        else f"📬 Unread Emails Triage ({len(items)} items)"
-    )
-    table = Table(title=table_title, show_lines=True)
-    table.add_column("#", style="dim", width=4)
-    table.add_column("Category", style="cyan", width=16)
-    table.add_column("From & Date", style="magenta", width=26)
-    table.add_column("Summary & Subject", style="bold white", width=34)
-    table.add_column("Action Items / Dates / Replies", style="yellow", width=40)
+    chunk_size = 10
+    total_items = len(items)
 
-    for i, item in enumerate(items, 1):
-        if len(item.senders) > 1:
-            senders_str = ", ".join(s.name or s.email.split("@")[0] for s in item.senders)
-            sender_display = f"[bold]{senders_str}[/bold] [cyan]({item.message_count} msgs)[/cyan]\n[dim]{item.date[:16]}[/dim]"
-        else:
-            sender_display = f"{item.sender_name or item.sender_email}\n[dim]{item.date[:16]}[/dim]"
+    if total_items <= chunk_size:
+        table_title = (
+            f"📬 Unread Emails Triage ({total_items} threads / {total_messages} messages)"
+            if total_messages > total_items
+            else f"📬 Unread Emails Triage ({total_items} items)"
+        )
+        table = Table(title=table_title, show_lines=True)
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Category", style="cyan", width=16)
+        table.add_column("From & Date", style="magenta", width=26)
+        table.add_column("Summary & Subject", style="bold white", width=34)
+        table.add_column("Action Items / Dates / Replies", style="yellow", width=40)
 
-        summary_str = f"[bold]{item.title_summary}[/bold]\n[dim]{item.brief_summary[:120]}...[/dim]"
+        for i, item in enumerate(items, 1):
+            if len(item.senders) > 1:
+                senders_str = ", ".join(s.name or s.email.split("@")[0] for s in item.senders)
+                sender_display = f"[bold]{senders_str}[/bold] [cyan]({item.message_count} msgs)[/cyan]\n[dim]{item.date[:16]}[/dim]"
+            else:
+                sender_display = f"{item.sender_name or item.sender_email}\n[dim]{item.date[:16]}[/dim]"
 
-        details: list[str] = []
-        for action in item.action_items[:2]:
-            details.append(f"⚡ [bold]{action}[/bold]")
-        for event in item.calendar_events[:2]:
-            details.append(f"📅 [cyan]{event.summary}[/cyan]")
-        if item.suggested_replies:
-            details.append(f"💬 [green]Reply: \"{item.suggested_replies[0][:50]}...\"[/green]")
+            summary_str = f"[bold]{item.title_summary}[/bold]\n[dim]{item.brief_summary[:120]}...[/dim]"
 
-        details_str = "\n".join(details) if details else "[dim]No explicit actions/dates[/dim]"
-        table.add_row(str(i), item.category, sender_display, summary_str, details_str)
+            details: list[str] = []
+            for action in item.action_items[:2]:
+                details.append(f"⚡ [bold]{action}[/bold]")
+            for event in item.calendar_events[:2]:
+                details.append(f"📅 [cyan]{event.summary}[/cyan]")
+            if item.suggested_replies:
+                details.append(f"💬 [green]Reply: \"{item.suggested_replies[0][:50]}...\"[/green]")
 
-    console.print(table)
+            details_str = "\n".join(details) if details else "[dim]No explicit actions/dates[/dim]"
+            table.add_row(str(i), item.category, sender_display, summary_str, details_str)
+
+        console.print(table)
+    else:
+        num_pages = (total_items + chunk_size - 1) // chunk_size
+        for page_idx in range(num_pages):
+            start_idx = page_idx * chunk_size
+            end_idx = min(start_idx + chunk_size, total_items)
+            page_items = items[start_idx:end_idx]
+
+            table_title = (
+                f"📬 Unread Emails Triage — Page {page_idx + 1}/{num_pages} (Items {start_idx + 1}–{end_idx} of {total_items})"
+            )
+            table = Table(title=table_title, show_lines=True)
+            table.add_column("#", style="dim", width=4)
+            table.add_column("Category", style="cyan", width=16)
+            table.add_column("From & Date", style="magenta", width=26)
+            table.add_column("Summary & Subject", style="bold white", width=34)
+            table.add_column("Action Items / Dates / Replies", style="yellow", width=40)
+
+            for i, item in enumerate(page_items, start_idx + 1):
+                if len(item.senders) > 1:
+                    senders_str = ", ".join(s.name or s.email.split("@")[0] for s in item.senders)
+                    sender_display = f"[bold]{senders_str}[/bold] [cyan]({item.message_count} msgs)[/cyan]\n[dim]{item.date[:16]}[/dim]"
+                else:
+                    sender_display = f"{item.sender_name or item.sender_email}\n[dim]{item.date[:16]}[/dim]"
+
+                summary_str = f"[bold]{item.title_summary}[/bold]\n[dim]{item.brief_summary[:120]}...[/dim]"
+
+                details: list[str] = []
+                for action in item.action_items[:2]:
+                    details.append(f"⚡ [bold]{action}[/bold]")
+                for event in item.calendar_events[:2]:
+                    details.append(f"📅 [cyan]{event.summary}[/cyan]")
+                if item.suggested_replies:
+                    details.append(f"💬 [green]Reply: \"{item.suggested_replies[0][:50]}...\"[/green]")
+
+                details_str = "\n".join(details) if details else "[dim]No explicit actions/dates[/dim]"
+                table.add_row(str(i), item.category, sender_display, summary_str, details_str)
+
+            console.print(table)
+
+            if page_idx < num_pages - 1:
+                if sys.stdin.isatty():
+                    console.print(
+                        f"\n[bold cyan]Showing page {page_idx + 1} of {num_pages} ({end_idx}/{total_items} items). Press [⏎ / →] for next page, [q / Esc] to exit: [/bold cyan]",
+                        end="",
+                    )
+                    nav_key = get_single_key().strip().lower()
+                    console.print()
+                    if nav_key in ("q", "quit", "exit", "esc"):
+                        console.print("[yellow]Scan stopped by user.[/yellow]")
+                        break
+                else:
+                    console.print()
+
     console.print(
         "\n[bold]Tip:[/bold] Run [cyan]inbox-zero review[/cyan] to interactively review full conversation threads, reply, add events, and mark as read."
     )
@@ -204,11 +261,55 @@ def review(
         console.print("[green]🎉 Inbox Zero! No unread messages found.[/green]")
         return
 
-    console.print(f"[bold green]Starting interactive triage for {len(threads_list)} unread conversation threads...[/bold green]\n")
+    total_threads = len(threads_list)
+    total_batches = (total_threads + 9) // 10
+
+    if total_threads > 10:
+        console.print(
+            f"[bold green]Starting interactive triage for {total_threads} unread conversation threads ({total_batches} batches of 10)...[/bold green]\n"
+        )
+    else:
+        console.print(
+            f"[bold green]Starting interactive triage for {total_threads} unread conversation threads...[/bold green]\n"
+        )
 
     idx = 0
+    prev_idx = -1
+    user_quits = False
     try:
-        while idx < len(threads_list):
+        while idx < total_threads:
+            # If we crossed a 10-item batch boundary while moving forward
+            if total_threads > 10 and idx > 0 and idx % 10 == 0 and prev_idx < idx:
+                completed_batch = idx // 10
+                next_batch = completed_batch + 1
+                next_end = min(idx + 10, total_threads)
+                console.print(
+                    Panel(
+                        f"🎉 [bold green]Batch {completed_batch} of {total_batches} Complete![/bold green] "
+                        f"({idx} of {total_threads} threads reviewed)\n\n"
+                        f"• Press [bold green][⏎ / →][/bold green] to continue to [bold cyan]Batch {next_batch}[/bold cyan] (threads {idx + 1}–{next_end})\n"
+                        f"• Press [bold yellow][↑ / p][/bold yellow] to go back to previous thread\n"
+                        f"• Press [bold dim][q / Esc][/bold dim] to stop triage",
+                        title=f"📦 Batch {completed_batch}/{total_batches} Milestone",
+                        border_style="green",
+                    )
+                )
+                console.print(
+                    f"[bold cyan]Continue to Batch {next_batch}? [⏎ / →] Next Batch  [↑ / p] Go Back  [q] Quit: [/bold cyan]",
+                    end="",
+                )
+                batch_key = get_single_key().strip().lower()
+                console.print()
+                if batch_key in ("q", "quit", "exit", "esc"):
+                    console.print("[yellow]Triage stopped by user.[/yellow]")
+                    user_quits = True
+                    break
+                elif batch_key in ("up", "p", "prev", "previous"):
+                    idx -= 1
+                    prev_idx = idx
+                    continue
+
+            prev_idx = idx
             t = threads_list[idx]
             tid = t.get("id")
             if not tid:
@@ -268,10 +369,16 @@ def review(
 ### 💬 Suggested Replies (Reply to Thread)
 {replies_md}
 """
+            batch_num = (idx // 10) + 1
+            panel_title = (
+                f"[{idx + 1}/{total_threads}] (Batch {batch_num}/{total_batches}) {item.title_summary}"
+                if total_threads > 10
+                else f"[{idx + 1}/{total_threads}] {item.title_summary}"
+            )
             console.print(
                 Panel(
                     Markdown(body_content),
-                    title=f"[{idx + 1}/{len(threads_list)}] {item.title_summary}",
+                    title=panel_title,
                     border_style="bright_blue",
                 )
             )
@@ -282,7 +389,6 @@ def review(
                 else "[bold cyan]Action:[/bold cyan] [bold green]\\[⏎ / →] Mark Read[/bold green], [yellow]\\[← / s] Keep Unread[/yellow], [magenta]\\[r] Send Reply[/magenta], [cyan]\\[c] Add to Calendar[/cyan], [dim]\\[q] Quit[/dim]: "
             )
 
-            user_quits = False
             while True:
                 console.print(prompt_text, end="")
                 choice = get_single_key().strip().lower()
@@ -419,6 +525,9 @@ def review(
                 break
 
             console.print("=" * 60)
+
+        if not user_quits and idx >= total_threads:
+            console.print(f"\n[bold green]🎉 All {total_threads} unread email threads reviewed![/bold green]\n")
     except KeyboardInterrupt:
         console.print("\n[yellow]Triage stopped by user.[/yellow]")
 
