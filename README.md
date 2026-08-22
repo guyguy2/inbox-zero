@@ -3,7 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![Package Manager](https://img.shields.io/badge/managed%20by-uv-purple.svg)](https://github.com/astral-sh/uv)
 [![CLI Integration](https://img.shields.io/badge/integration-Google%20Workspace%20CLI%20(gws)-green.svg)](https://github.com/googleworkspace/cli)
-[![Tests](https://img.shields.io/badge/tests-39%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-41%20passed-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > Intelligent, deterministic Email Triage, Action Item Extraction, Contextual Reply Generation, and Google Calendar Scheduling powered by **Google Workspace CLI (`gws`)**, **UV**, and **AI Agents**.
@@ -18,7 +18,7 @@
 - 📅 **Detects Calendar Events**: Isolates dates and times, suggesting 1-click Google Calendar additions.
 - 💬 **Drafts Contextual Smart Replies**: Suggests natural quick replies for human senders (teachers, coaches, colleagues) while ignoring automated newsletters.
 - 🛡️ **Fails Fast on Auth**: Immediately detects unauthenticated or expired `gws` sessions with clear recovery steps (`gws auth login`).
-- 🤖 **Empowers AI Agents**: Emits Pydantic-validated structured JSON for LLM orchestration and pair-programming assistants.
+- 🤖 **Empowers AI Agents**: Emits Pydantic-validated structured JSON for LLM orchestration and Antigravity (AGY) workflows.
 
 ---
 
@@ -44,10 +44,10 @@
                                │
            ┌───────────────────┴───────────────────┐
            ▼                                       ▼
- 🖥️ Interactive CLI (Rich / Typer)        🤖 AI Agent Interface (JSON / CLI)
+ 🖥️ Interactive CLI (Rich / Typer)        🤖 AI Agent Bridge (agent_bridge.py)
  - Visual Triage Tables                   - Structured Pydantic Payloads
- - Step-by-Step Email Review              - Contextual Reasoning & Q&A
- - 1-Click Calendar Add & Mark Read       - Automated Inbox Management
+ - Step-by-Step Email Review              - Programmatic Decision Dispatch
+ - 1-Click Calendar Add & Mark Read       - Two-way AGY Agent Integration
  - 1-Click Contextual Reply Sending
 ```
 
@@ -64,12 +64,14 @@ inbox_zero/
 │       ├── models.py           # Pydantic schemas (EmailMessage, TriageItem, CalendarEventSuggestion)
 │       ├── parser.py           # BeautifulSoup HTML cleaner & disclaimer filter
 │       ├── analyzer.py         # Deterministic date/action heuristics & smart replies
+│       ├── agent_bridge.py     # AI Agent & AGY ingestion / decision execution bridge
 │       └── cli.py              # Interactive Rich / Typer terminal application
 └── tests/
     ├── test_parser.py          # HTML parsing and cleanup tests
     ├── test_analyzer.py        # Heuristics, dates, and reply suggestion tests
     ├── test_client.py          # GWS client auth checks, timeouts & command tests
     ├── test_models.py          # Pydantic schema validation & serialization tests
+    ├── test_agent_bridge.py    # AI Agent payload preparation & decision dispatch tests
     └── test_cli.py             # Typer CLI test suite (table, review, JSON, mark-read)
 ```
 
@@ -137,28 +139,36 @@ uv run inbox-zero mark-read <MESSAGE_ID_1> <MESSAGE_ID_2>
 
 ---
 
-## 🐍 Python API Usage
+## 🤖 AI Agent & AGY Bridge Usage
 
-You can also import and use `inbox_zero` programmatically in your own Python scripts and agents:
+You can use [`agent_bridge.py`](file:///Users/guy/dev/ai/ai-tools/inbox_zero/src/inbox_zero/agent_bridge.py) to integrate `inbox-zero` with Antigravity (AGY) or any LLM agent in two simple steps:
 
 ```python
-from inbox_zero import GWSClient, analyze_email
+from inbox_zero import prepare_agent_triage_payload, apply_agent_decisions
 
-# 1. Initialize client (fails fast if gws is not authenticated)
-client = GWSClient(check_auth_on_init=True)
+# 1. Generate clean, sanitized payload for the AI agent
+agent_payload = prepare_agent_triage_payload(limit=10)
 
-# 2. Fetch unread messages
-unread = client.list_unread_messages(max_results=10)
+# 2. Pass agent_payload to AGY / LLM for reasoning...
+# (The LLM reviews summaries, identifies conflicts, and generates decision JSON)
 
-# 3. Analyze each message
-for m in unread:
-    msg = client.get_message(m["id"])
-    triage = analyze_email(msg)
-    
-    print(f"[{triage.category}] {triage.title_summary}")
-    print(f"Actions: {triage.action_items}")
-    print(f"Events: {[e.summary for e in triage.calendar_events]}")
-    print(f"Replies: {triage.suggested_replies}")
+# 3. Apply the AI agent's decisions deterministically
+decisions = {
+    "replies": [
+        {"message_id": "1a025fb2f98bed9f", "body": "Thank you Mrs. Patel for the update!"}
+    ],
+    "calendar_events": [
+        {
+            "summary": "AYSO Soccer Practice",
+            "start_time": "2026-08-27T17:00:00-05:00",
+            "location": "Wood Oaks Field 3"
+        }
+    ],
+    "mark_as_read": ["1a025fb2f98bed9f"]
+}
+
+results = apply_agent_decisions(decisions)
+print("Execution Results:", results)
 ```
 
 ---
@@ -172,6 +182,8 @@ uv run pytest -v
 
 Output:
 ```text
+tests/test_agent_bridge.py::test_prepare_agent_triage_payload PASSED
+tests/test_agent_bridge.py::test_apply_agent_decisions PASSED
 tests/test_analyzer.py::test_categorization PASSED
 tests/test_analyzer.py::test_is_disclaimer PASSED
 tests/test_analyzer.py::test_is_automated_sender PASSED
@@ -212,7 +224,7 @@ tests/test_parser.py::test_extract_clean_email_body_fallback PASSED
 tests/test_parser.py::test_sender_parsing PASSED
 tests/test_parser.py::test_truncate_preview PASSED
 
-============================== 39 passed in 0.13s ==============================
+============================== 41 passed in 0.13s ==============================
 ```
 
 ---
