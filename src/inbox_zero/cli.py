@@ -176,6 +176,7 @@ def scan(
 
         console.print(table)
     else:
+        user_stopped = False
         num_pages = (total_items + chunk_size - 1) // chunk_size
         for page_idx in range(num_pages):
             start_idx = page_idx * chunk_size
@@ -224,13 +225,27 @@ def scan(
                     console.print()
                     if nav_key in ("q", "quit", "exit", "esc"):
                         console.print("[yellow]Scan stopped by user.[/yellow]")
+                        user_stopped = True
                         break
                 else:
                     console.print()
 
+        if user_stopped:
+            return
+
     console.print(
         "\n[bold]Tip:[/bold] Run [cyan]inbox-zero review[/cyan] to interactively review full conversation threads, reply, add events, and mark as read."
     )
+    console.print("[bold]Start interactive review now? [⏎ / y] Yes  [n] No:[/bold] ", end="")
+    launch_choice = get_single_key().strip().lower()
+    console.print()
+    if launch_choice in ("enter", "y", "yes", "d", "right", ""):
+        review(
+            limit=limit,
+            query=query,
+            show_body=None,
+            config_file=config_file,
+        )
 
 
 @app.command()

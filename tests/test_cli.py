@@ -54,6 +54,78 @@ def test_cli_scan_with_thread_messages():
         assert "1 threads / 2 messages" in result.stdout
         assert "Liam and Ben" in result.stdout
         assert "Stefani Wiemann" in result.stdout
+        assert "Start interactive review now?" in result.stdout
+
+
+def test_cli_scan_launches_review_on_yes():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Soccer Practice",
+                sender=Sender(name="Coach Dave", email="coach@ayso.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Practice on Thursday.",
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+
+        # Input 'y' to launch review, then 'y' to mark thread as read in review mode
+        result = runner.invoke(app, ["scan"], input="y\ny\n")
+        assert result.exit_code == 0
+        assert "Start interactive review now?" in result.stdout
+        assert "Starting interactive triage" in result.stdout
+        assert "Marked thread as read" in result.stdout
+
+
+def test_cli_scan_launches_review_on_default_enter():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Soccer Practice",
+                sender=Sender(name="Coach Dave", email="coach@ayso.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Practice on Thursday.",
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+
+        # Input '\n' (enter key - default yes) to launch review, then 'y' to mark read
+        result = runner.invoke(app, ["scan"], input="\ny\n")
+        assert result.exit_code == 0
+        assert "Start interactive review now?" in result.stdout
+        assert "Starting interactive triage" in result.stdout
+        assert "Marked thread as read" in result.stdout
+
+
+def test_cli_scan_skips_review_on_no():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Soccer Practice",
+                sender=Sender(name="Coach Dave", email="coach@ayso.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="Practice on Thursday.",
+            )
+        ]
+
+        # Input 'n' to decline launching review
+        result = runner.invoke(app, ["scan"], input="n\n")
+        assert result.exit_code == 0
+        assert "Start interactive review now?" in result.stdout
+        assert "Starting interactive triage" not in result.stdout
+
 
 
 def test_cli_scan_json():
