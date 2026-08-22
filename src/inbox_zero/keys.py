@@ -7,6 +7,43 @@ import sys
 from typing import Optional
 
 
+def parse_raw_key_bytes(raw_bytes: bytes) -> str:
+    """Parse raw bytes from terminal into a normalized action key string."""
+    if not raw_bytes:
+        return "q"
+
+    if raw_bytes in (b"\r", b"\n", b"\r\n"):
+        return "enter"
+    if raw_bytes == b"\x03":  # Ctrl+C
+        raise KeyboardInterrupt
+    if raw_bytes == b" ":
+        return "space"
+
+    # ANSI escape sequences (Arrow keys, Home, End, Page Up/Down, Esc)
+    if raw_bytes.startswith(b"\x1b"):
+        if (raw_bytes.startswith(b"\x1b[") or raw_bytes.startswith(b"\x1bO")) and raw_bytes.endswith(b"A"):
+            return "up"
+        if (raw_bytes.startswith(b"\x1b[") or raw_bytes.startswith(b"\x1bO")) and raw_bytes.endswith(b"B"):
+            return "down"
+        if (raw_bytes.startswith(b"\x1b[") or raw_bytes.startswith(b"\x1bO")) and raw_bytes.endswith(b"C"):
+            return "right"
+        if (raw_bytes.startswith(b"\x1b[") or raw_bytes.startswith(b"\x1bO")) and raw_bytes.endswith(b"D"):
+            return "left"
+        if raw_bytes in (b"\x1b[5~", b"\x1b[H"):
+            return "up"
+        if raw_bytes in (b"\x1b[6~", b"\x1b[F"):
+            return "down"
+        if raw_bytes == b"\x1b":
+            return "esc"
+        return "esc"
+
+    try:
+        char = raw_bytes.decode("utf-8", errors="ignore").lower().strip()
+        return char if char else "enter"
+    except Exception:
+        return ""
+
+
 def get_single_key(prompt: Optional[str] = None) -> str:
     """Read a single keypress or key sequence from terminal.
 
@@ -72,7 +109,7 @@ def get_single_key(prompt: Optional[str] = None) -> str:
         except ImportError:
             pass
 
-    # POSIX (macOS & Linux) single-key input
+    # POSIX (macOS & Linux) single-key input using direct OS-level non-buffered reads
     import select
     import termios
     import tty
@@ -81,34 +118,18 @@ def get_single_key(prompt: Optional[str] = None) -> str:
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
-        ch = sys.stdin.read(1)
-        if ch in ("\r", "\n"):
-            return "enter"
-        if ch == "\x03":  # Ctrl+C
-            raise KeyboardInterrupt
-        if ch == " ":
-            return "space"
-        if ch == "\x1b":
-            # Check for following ANSI escape sequence (arrow keys, etc.)
-            rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
+        # Direct os.read to bypass Python's TextIOWrapper/BufferedReader
+        raw_bytes = os.read(fd, 32)
+        if not raw_bytes:
+            return "q"
+
+        # If a lone escape byte arrived, check if remaining ANSI sequence arrives within 50ms
+        if raw_bytes == b"\x1b":
+            rlist, _, _ = select.select([fd], [], [], 0.05)
             if rlist:
-                ch2 = sys.stdin.read(1)
-                if ch2 in ("[", "O"):
-                    ch3 = sys.stdin.read(1)
-                    if ch3 == "A":
-                        return "up"
-                    elif ch3 == "B":
-                        return "down"
-                    elif ch3 == "C":
-                        return "right"
-                    elif ch3 == "D":
-                        return "left"
-                    elif ch3 in ("1", "2", "3", "4", "5", "6"):
-                        # Consume trailing '~'
-                        _ = sys.stdin.read(1)
-                        return "esc"
-                return "esc"
-            return "esc"
-        return ch.lower()
+                more_bytes = os.read(fd, 31)
+                raw_bytes += more_bytes
+
+        return parse_raw_key_bytes(raw_bytes)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
