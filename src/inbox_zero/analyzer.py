@@ -1,4 +1,4 @@
-"""Deterministic analysis engine for emails: action items, summaries, dates."""
+"""Deterministic analysis engine for emails: action items, summaries, dates, and suggested replies."""
 
 from __future__ import annotations
 
@@ -48,6 +48,22 @@ DISCLAIMER_PHRASES = [
     "view in browser",
     "all rights reserved",
 ]
+
+AUTOMATED_SENDER_PATTERNS = [
+    "noreply",
+    "no-reply",
+    "donotreply",
+    "notifications@",
+    "mailer-daemon",
+    "alert@",
+    "news@",
+]
+
+
+def is_automated_sender(sender_email: str) -> bool:
+    """Check if the sender is an automated bot or newsletter."""
+    lower = sender_email.lower()
+    return any(p in lower for p in AUTOMATED_SENDER_PATTERNS)
 
 
 def is_disclaimer(text: str) -> bool:
@@ -143,17 +159,50 @@ def extract_action_items(body: str) -> list[str]:
     return actions[:6]
 
 
+def suggest_replies(message: EmailMessage, category: str) -> list[str]:
+    """Generate contextual quick-reply drafts when relevant."""
+    # Don't suggest replies for automated bot accounts or newsletters
+    if is_automated_sender(message.sender.email):
+        return []
+
+    body_lower = message.body_text.lower()
+    subject_lower = message.subject.lower()
+    sender_name = message.sender.name or "there"
+
+    # If it's a short thank-you acknowledgement reply from family, no reply needed
+    if ("thank you" in body_lower or "thanks" in body_lower) and len(message.body_text.strip()) < 150:
+        return []
+
+    replies: list[str] = []
+
+    # Teacher / School update
+    if category == "School & Kids" or "nb27.org" in message.sender.email:
+        first_name = sender_name.split()[0] if sender_name else "Teacher"
+        replies.append(f"Thank you so much {sender_name}! We really appreciate the update and are looking forward to a great year.")
+        replies.append(f"Thanks {first_name}, glad to hear it! Looking forward to seeing you at Back-to-School Night.")
+
+    # Sports / Coach update
+    elif category == "Sports & Activities" or "coach" in body_lower or "ayso" in body_lower:
+        replies.append(f"Thanks Coach! We have the schedule noted and all gear ready for practice.")
+        replies.append(f"Thank you for the update! Looking forward to a fun season.")
+
+    # General direct inquiries
+    else:
+        replies.append("Thanks for reaching out! Received and noted.")
+        replies.append("Thank you for the update! Let me know if you need anything else from our end.")
+
+    return replies[:3]
+
+
 def generate_title_and_summary(message: EmailMessage) -> tuple[str, str]:
     """Generate punchy title summary and 2-3 sentence overview deterministically."""
     subject = message.subject.strip()
-    sender_name = message.sender.name or message.sender.email
     body = message.body_text.strip()
 
     title_summary = subject
     if title_summary.lower().startswith("re:") or title_summary.lower().startswith("fw:") or title_summary.lower().startswith("fwd:"):
         title_summary = title_summary.split(":", 1)[1].strip()
 
-    # Filter out disclaimer lines before building summary
     valid_lines = [line.strip() for line in body.splitlines() if line.strip() and not is_disclaimer(line)]
     clean_body = " ".join(valid_lines)
 
@@ -177,6 +226,7 @@ def analyze_email(message: EmailMessage) -> TriageItem:
     )
     action_items = extract_action_items(message.body_text)
     calendar_events = extract_dates_and_events(message.subject, message.body_text, message.date)
+    suggested_replies = suggest_replies(message, category)
 
     return TriageItem(
         message_id=message.id,
@@ -190,5 +240,6 @@ def analyze_email(message: EmailMessage) -> TriageItem:
         category=category,
         action_items=action_items,
         calendar_events=calendar_events,
+        suggested_replies=suggested_replies,
         raw_body_preview=truncate_preview(message.body_text, 250),
     )

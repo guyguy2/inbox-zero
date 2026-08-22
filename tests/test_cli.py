@@ -2,9 +2,19 @@ from unittest.mock import patch, MagicMock
 import json
 from typer.testing import CliRunner
 from inbox_zero.cli import app
+from inbox_zero.client import GWSAuthError
 from inbox_zero.models import EmailMessage, Sender
 
 runner = CliRunner()
+
+
+def test_cli_scan_auth_failure():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.ensure_authenticated.side_effect = GWSAuthError()
+        result = runner.invoke(app, ["scan"])
+        assert result.exit_code == 2
+        assert "gws auth login" in result.stdout
 
 
 def test_cli_scan_empty():

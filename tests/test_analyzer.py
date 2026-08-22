@@ -1,5 +1,11 @@
 import pytest
-from inbox_zero.analyzer import categorize_email, extract_action_items, extract_dates_and_events, analyze_email
+from inbox_zero.analyzer import (
+    categorize_email,
+    extract_action_items,
+    extract_dates_and_events,
+    suggest_replies,
+    analyze_email,
+)
 from inbox_zero.models import EmailMessage, Sender
 
 
@@ -24,6 +30,33 @@ def test_date_extraction():
     assert any("August 25" in e.start_time or "Tuesday" in e.start_time for e in events)
 
 
+def test_suggest_replies_teacher():
+    msg = EmailMessage(
+        id="123",
+        thread_id="t1",
+        subject="Ben's First Day",
+        sender=Sender(name="Roshani Patel", email="patel.r@nb27.org"),
+        date="Fri, 21 Aug 2026",
+        body_text="Ben had a wonderful first day in 5th grade honors math!",
+    )
+    replies = suggest_replies(msg, "School & Kids")
+    assert len(replies) > 0
+    assert any("Roshani" in r or "Thank you" in r for r in replies)
+
+
+def test_suggest_replies_automated_skipped():
+    msg = EmailMessage(
+        id="124",
+        thread_id="t2",
+        subject="Weekly District Newsletter",
+        sender=Sender(name="School District", email="noreply@nb27.org"),
+        date="Fri, 21 Aug 2026",
+        body_text="Here is the newsletter for this week.",
+    )
+    replies = suggest_replies(msg, "Newsletters & Updates")
+    assert len(replies) == 0
+
+
 def test_analyze_email_full():
     msg = EmailMessage(
         id="12345",
@@ -38,3 +71,4 @@ def test_analyze_email_full():
     assert triage.message_id == "12345"
     assert len(triage.action_items) > 0
     assert len(triage.calendar_events) > 0
+    assert len(triage.suggested_replies) > 0

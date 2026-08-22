@@ -65,6 +65,9 @@ class TriageItem(BaseModel):
     calendar_events: list[CalendarEventSuggestion] = Field(
         default_factory=list, description="Extracted dates/events"
     )
+    suggested_replies: list[str] = Field(
+        default_factory=list, description="Suggested quick reply drafts if relevant"
+    )
     raw_body_preview: str = ""
 
 

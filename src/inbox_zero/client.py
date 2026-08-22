@@ -14,17 +14,36 @@ logger = logging.getLogger(__name__)
 
 
 class GWSClientError(Exception):
-    """Exception raised for errors executing gws commands."""
+    """Exception raised for general errors executing gws commands."""
     pass
+
+
+class GWSAuthError(GWSClientError):
+    """Exception raised when gws authentication is missing, invalid, or expired."""
+    def __init__(self, message: str = "Google Workspace CLI (gws) is not authenticated. Please run 'gws auth login' to authenticate.") -> None:
+        super().__init__(message)
 
 
 class GWSClient:
     """Wrapper client around gws CLI."""
 
-    def __init__(self, timeout: int = 30) -> None:
+    def __init__(self, timeout: int = 30, check_auth_on_init: bool = False) -> None:
         self.timeout = timeout
+        if check_auth_on_init:
+            self.ensure_authenticated()
 
-    def _run_cmd(self, cmd: list[str], input_data: str | None = None) -> Any:
+    def ensure_authenticated(self) -> None:
+        """Check authentication status and fail fast if unauthenticated."""
+        try:
+            status = self._run_cmd(["gws", "auth", "status"], skip_auth_check=True)
+            if not isinstance(status, dict) or not status.get("token_valid", False):
+                raise GWSAuthError()
+        except GWSClientError as err:
+            if isinstance(err, GWSAuthError):
+                raise
+            raise GWSAuthError(f"Google Workspace CLI (gws) authentication check failed: {err}. Please run 'gws auth login'.") from err
+
+    def _run_cmd(self, cmd: list[str], input_data: str | None = None, skip_auth_check: bool = False) -> Any:
         """Run a gws CLI command and parse JSON output."""
         logger.debug("Running command: %s", " ".join(cmd))
         try:
@@ -40,6 +59,12 @@ class GWSClient:
             raise GWSClientError("gws CLI is not installed or not in PATH.") from exc
         except subprocess.TimeoutExpired as exc:
             raise GWSClientError(f"Command timed out after {self.timeout}s: {' '.join(cmd)}") from exc
+
+        # Check for authentication failure (exit code 2 or auth error text)
+        if result.returncode == 2 or any(
+            err_keyword in result.stderr.lower() for err_keyword in ["auth error", "credentials missing", "token expired", "unauthenticated", "invalid_grant"]
+        ):
+            raise GWSAuthError()
 
         if result.returncode != 0:
             err_msg = result.stderr.strip() or f"Command failed with exit code {result.returncode}"
@@ -125,6 +150,8 @@ class GWSClient:
         try:
             res = self._run_cmd(cmd)
             return bool(res and "id" in res)
+        except GWSAuthError:
+            raise
         except Exception as e:
             logger.error("Failed to mark message %s as read: %s", message_id, e)
             return False
@@ -135,6 +162,26 @@ class GWSClient:
         for mid in message_ids:
             results[mid] = self.mark_as_read(mid)
         return results
+
+    def send_reply(self, message_id: str, body: str, reply_all: bool = False) -> bool:
+        """Reply to an email message using gws."""
+        cmd = [
+            "gws",
+            "gmail",
+            "+reply-all" if reply_all else "+reply",
+            "--message-id",
+            message_id,
+            "--body",
+            body,
+        ]
+        try:
+            self._run_cmd(cmd)
+            return True
+        except GWSAuthError:
+            raise
+        except Exception as e:
+            logger.error("Failed to send reply to %s: %s", message_id, e)
+            return False
 
     def insert_calendar_event(
         self,
