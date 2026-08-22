@@ -53,8 +53,24 @@ def test_calendar_event_suggestion_model():
 
 
 def test_triage_batch_json_serialization():
+    msg1 = EmailMessage(
+        id="msg_001",
+        thread_id="thread_001",
+        subject="Weekly Update",
+        sender=Sender(name="Teacher", email="teacher@nb27.org"),
+        date="Fri, 21 Aug 2026",
+        body_text="First message",
+    )
+    msg2 = EmailMessage(
+        id="msg_002",
+        thread_id="thread_001",
+        subject="Re: Weekly Update",
+        sender=Sender(name="Parent", email="parent@example.com"),
+        date="Fri, 21 Aug 2026",
+        body_text="Second message",
+    )
     item = TriageItem(
-        message_id="msg_001",
+        message_id="msg_002",
         thread_id="thread_001",
         sender_name="Teacher",
         sender_email="teacher@nb27.org",
@@ -69,10 +85,18 @@ def test_triage_batch_json_serialization():
         ],
         suggested_replies=["Thank you for the update!"],
         raw_body_preview="Clean body preview...",
+        senders=[Sender(name="Teacher", email="teacher@nb27.org"), Sender(name="Parent", email="parent@example.com")],
+        messages=[msg1, msg2],
+        message_count=2,
+        unread_count=2,
     )
-    batch = TriageBatch(total_unread=1, items=[item])
+    batch = TriageBatch(total_unread=1, total_messages=2, items=[item])
     json_str = batch.model_dump_json()
     data = json.loads(json_str)
     assert data["total_unread"] == 1
+    assert data["total_messages"] == 2
     assert len(data["items"]) == 1
+    assert data["items"][0]["message_count"] == 2
+    assert len(data["items"][0]["messages"]) == 2
+    assert len(data["items"][0]["senders"]) == 2
     assert data["items"][0]["action_items"] == ["Sign permission slip"]

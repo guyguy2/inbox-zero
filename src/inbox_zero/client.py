@@ -81,6 +81,26 @@ class GWSClient:
             logger.error("Failed to decode JSON from gws: %s", stdout)
             raise GWSClientError(f"Invalid JSON returned from gws: {stdout[:200]}") from exc
 
+    def list_unread_threads(self, max_results: int = 20, query: str = "is:unread") -> list[dict[str, Any]]:
+        """List unread conversation threads using gws gmail users threads list."""
+        cmd = [
+            "gws",
+            "gmail",
+            "users",
+            "threads",
+            "list",
+            "--params",
+            json.dumps({"userId": "me", "q": query, "maxResults": max_results}),
+            "--format",
+            "json",
+        ]
+        data = self._run_cmd(cmd)
+        if isinstance(data, dict):
+            return data.get("threads", [])
+        if isinstance(data, list):
+            return data
+        return []
+
     def list_unread_messages(self, max_results: int = 20, query: str = "is:unread") -> list[dict[str, Any]]:
         """List unread messages using gws gmail +triage."""
         cmd = [
@@ -134,6 +154,47 @@ class GWSClient:
             is_unread=True,
         )
 
+    def get_thread(self, thread_id: str) -> list[EmailMessage]:
+        """Fetch all messages belonging to a conversation thread in chronological order."""
+        cmd = [
+            "gws",
+            "gmail",
+            "users",
+            "threads",
+            "get",
+            "--params",
+            json.dumps({"userId": "me", "id": thread_id}),
+            "--format",
+            "json",
+        ]
+        raw = self._run_cmd(cmd)
+        if not isinstance(raw, dict):
+            raise GWSClientError(f"Unexpected response fetching thread {thread_id}: {raw}")
+
+        messages_raw = raw.get("messages", [])
+        if not messages_raw:
+            # Fallback: fetch individual message if thread messages are empty
+            try:
+                msg = self.get_message(thread_id)
+                return [msg]
+            except Exception:
+                return []
+
+        messages: list[EmailMessage] = []
+        for m in messages_raw:
+            mid = m.get("id")
+            if not mid:
+                continue
+            try:
+                email_msg = self.get_message(mid)
+                email_msg.is_unread = "UNREAD" in m.get("labelIds", [])
+                email_msg.thread_id = thread_id
+                messages.append(email_msg)
+            except Exception as exc:
+                logger.warning("Could not fetch message %s in thread %s: %s", mid, thread_id, exc)
+
+        return messages
+
     def mark_as_read(self, message_id: str) -> bool:
         """Mark a message as read by removing the UNREAD label."""
         cmd = [
@@ -154,6 +215,28 @@ class GWSClient:
             raise
         except Exception as e:
             logger.error("Failed to mark message %s as read: %s", message_id, e)
+            return False
+
+    def mark_thread_as_read(self, thread_id: str) -> bool:
+        """Mark an entire conversation thread as read by removing the UNREAD label."""
+        cmd = [
+            "gws",
+            "gmail",
+            "users",
+            "threads",
+            "modify",
+            "--params",
+            json.dumps({"userId": "me", "id": thread_id}),
+            "--json",
+            json.dumps({"removeLabelIds": ["UNREAD"]}),
+        ]
+        try:
+            res = self._run_cmd(cmd)
+            return bool(res and "id" in res)
+        except GWSAuthError:
+            raise
+        except Exception as e:
+            logger.error("Failed to mark thread %s as read: %s", thread_id, e)
             return False
 
     def mark_multiple_as_read(self, message_ids: list[str]) -> dict[str, bool]:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from inbox_zero.models import CalendarEventSuggestion, EmailMessage, TriageItem
+from inbox_zero.models import CalendarEventSuggestion, EmailMessage, Sender, TriageItem
 from inbox_zero.parser import truncate_preview
 
 
@@ -198,14 +198,25 @@ def suggest_replies(message: EmailMessage, category: str) -> list[str]:
     return replies[:3]
 
 
+def clean_subject(subject: str) -> str:
+    """Remove leading Re:, Fw:, Fwd: prefixes from subject."""
+    clean = subject.strip()
+    changed = True
+    while changed:
+        changed = False
+        for prefix in ["re:", "fw:", "fwd:"]:
+            if clean.lower().startswith(prefix):
+                clean = clean[len(prefix):].strip()
+                changed = True
+    return clean or "(No Subject)"
+
+
 def generate_title_and_summary(message: EmailMessage) -> tuple[str, str]:
     """Generate punchy title summary and 2-3 sentence overview deterministically."""
     subject = message.subject.strip()
     body = message.body_text.strip()
 
-    title_summary = subject
-    if title_summary.lower().startswith("re:") or title_summary.lower().startswith("fw:") or title_summary.lower().startswith("fwd:"):
-        title_summary = title_summary.split(":", 1)[1].strip()
+    title_summary = clean_subject(subject)
 
     valid_lines = [line.strip() for line in body.splitlines() if line.strip() and not is_disclaimer(line)]
     clean_body = " ".join(valid_lines)
@@ -219,31 +230,85 @@ def generate_title_and_summary(message: EmailMessage) -> tuple[str, str]:
     return title_summary, brief_summary
 
 
-def analyze_email(message: EmailMessage) -> TriageItem:
-    """Perform comprehensive analysis of an email message."""
-    title_summary, brief_summary = generate_title_and_summary(message)
+def analyze_thread(messages: list[EmailMessage]) -> TriageItem:
+    """Perform comprehensive triage analysis of a conversation thread."""
+    if not messages:
+        raise ValueError("Cannot analyze empty thread messages")
+
+    root = messages[0]
+    latest = messages[-1]
+
+    # Collect distinct senders in chronological order of appearance
+    senders: list[Sender] = []
+    seen_emails: set[str] = set()
+    for m in messages:
+        if m.sender.email.lower() not in seen_emails:
+            seen_emails.add(m.sender.email.lower())
+            senders.append(m.sender)
+
+    title_summary = clean_subject(root.subject)
+
+    # Conversation summary
+    if len(messages) == 1:
+        _, brief_summary = generate_title_and_summary(latest)
+    else:
+        parts: list[str] = []
+        for m in messages:
+            s_name = m.sender.name or m.sender.email.split("@")[0]
+            _, m_sum = generate_title_and_summary(m)
+            parts.append(f"{s_name}: {m_sum}")
+        brief_summary = " | ".join(parts)
+
+    combined_body = "\n\n".join(m.body_text for m in messages)
     category = categorize_email(
-        message.subject,
-        message.sender.email,
-        message.sender.name or "",
-        message.body_text,
+        root.subject,
+        latest.sender.email,
+        latest.sender.name or root.sender.name or "",
+        combined_body,
     )
-    action_items = extract_action_items(message.body_text)
-    calendar_events = extract_dates_and_events(message.subject, message.body_text, message.date)
-    suggested_replies = suggest_replies(message, category)
+
+    # Extract all action items across the thread (deduplicated)
+    action_items: list[str] = []
+    seen_actions: set[str] = set()
+    for m in messages:
+        for action in extract_action_items(m.body_text):
+            if action.lower() not in seen_actions:
+                seen_actions.add(action.lower())
+                action_items.append(action)
+
+    # Extract all calendar events across the thread (deduplicated)
+    calendar_events: list[CalendarEventSuggestion] = []
+    seen_events: set[str] = set()
+    for m in messages:
+        for ev in extract_dates_and_events(m.subject, m.body_text, m.date):
+            if ev.summary.lower() not in seen_events:
+                seen_events.add(ev.summary.lower())
+                calendar_events.append(ev)
+
+    # Suggested replies targeting the latest message in thread
+    suggested_replies = suggest_replies(latest, category)
 
     return TriageItem(
-        message_id=message.id,
-        thread_id=message.thread_id,
-        sender_name=message.sender.name,
-        sender_email=message.sender.email,
-        date=message.date,
-        subject=message.subject,
+        message_id=latest.id,
+        thread_id=root.thread_id or latest.thread_id,
+        sender_name=latest.sender.name or root.sender.name,
+        sender_email=latest.sender.email,
+        date=latest.date,
+        subject=root.subject,
         title_summary=title_summary,
         brief_summary=brief_summary,
         category=category,
         action_items=action_items,
         calendar_events=calendar_events,
         suggested_replies=suggested_replies,
-        raw_body_preview=truncate_preview(message.body_text, 250),
+        raw_body_preview=truncate_preview(latest.body_text, 250),
+        senders=senders,
+        messages=messages,
+        message_count=len(messages),
+        unread_count=sum(1 for m in messages if m.is_unread),
     )
+
+
+def analyze_email(message: EmailMessage) -> TriageItem:
+    """Perform comprehensive analysis of an individual email message."""
+    return analyze_thread([message])

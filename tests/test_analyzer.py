@@ -7,6 +7,7 @@ from inbox_zero.analyzer import (
     is_disclaimer,
     is_automated_sender,
     analyze_email,
+    analyze_thread,
 )
 from inbox_zero.models import EmailMessage, Sender
 
@@ -120,3 +121,33 @@ def test_analyze_email_full():
     assert len(triage.action_items) > 0
     assert len(triage.calendar_events) > 0
     assert len(triage.suggested_replies) > 0
+
+
+def test_analyze_thread_multi_messages():
+    msg1 = EmailMessage(
+        id="m1",
+        thread_id="t1",
+        subject="Liam and Ben's start to the year",
+        sender=Sender(name="Stefani Wiemann", email="wiemann.s@nb27.org"),
+        date="Fri, 21 Aug 2026 12:48:42 -0500",
+        body_text="Good morning! Great having Liam and Ben in class. Back to school night is Sept 9 at 9:30am. Please bring notebook.",
+    )
+    msg2 = EmailMessage(
+        id="m2",
+        thread_id="t1",
+        subject="Re: Liam and Ben's start to the year",
+        sender=Sender(name="Hanni", email="hanni1976.hf@gmail.com"),
+        date="Fri, 21 Aug 2026 20:25:17 +0000",
+        body_text="Thank you for your email! We will make sure to bring the notebook.",
+    )
+    triage = analyze_thread([msg1, msg2])
+    assert triage.thread_id == "t1"
+    assert triage.message_id == "m2"
+    assert triage.message_count == 2
+    assert len(triage.senders) == 2
+    assert triage.title_summary == "Liam and Ben's start to the year"
+    assert "Stefani Wiemann:" in triage.brief_summary
+    assert "Hanni:" in triage.brief_summary
+    assert any("notebook" in a.lower() for a in triage.action_items)
+    assert any("Sept 9" in ev.start_time or "September" in ev.start_time for ev in triage.calendar_events)
+

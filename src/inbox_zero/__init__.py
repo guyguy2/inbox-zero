@@ -2,7 +2,7 @@
 
 from inbox_zero.client import GWSClient, GWSClientError, GWSAuthError
 from inbox_zero.models import EmailMessage, TriageItem, TriageBatch, CalendarEventSuggestion
-from inbox_zero.analyzer import analyze_email
+from inbox_zero.analyzer import analyze_email, analyze_thread
 from inbox_zero.agent_bridge import prepare_agent_triage_payload, apply_agent_decisions
 from inbox_zero.cli import main, app
 
@@ -16,6 +16,7 @@ __all__ = [
     "TriageBatch",
     "CalendarEventSuggestion",
     "analyze_email",
+    "analyze_thread",
     "prepare_agent_triage_payload",
     "apply_agent_decisions",
     "main",

@@ -4,33 +4,53 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from inbox_zero.analyzer import analyze_email, analyze_thread
 from inbox_zero.client import GWSClient
-from inbox_zero.analyzer import analyze_email
 from inbox_zero.models import TriageBatch, TriageItem
 
 
 def prepare_agent_triage_payload(limit: int = 20, query: str = "is:unread") -> dict[str, Any]:
-    """Fetch unread emails, sanitize them, and format a structured prompt payload for an AI agent.
+    """Fetch unread email threads, sanitize them, and format a structured prompt payload for an AI agent.
     
     This function is used by AGY or headless agents to get pre-filtered,
-    privacy-safe email text without raw HTML junk or tracking code.
+    privacy-safe email thread text without raw HTML junk or tracking code.
     """
     client = GWSClient(check_auth_on_init=True)
-    unread_messages = client.list_unread_messages(max_results=limit, query=query)
+    unread_threads = client.list_unread_threads(max_results=limit, query=query)
     
     items: list[TriageItem] = []
-    for m in unread_messages:
-        mid = m.get("id")
-        if not mid:
-            continue
-        try:
-            msg = client.get_message(mid)
-            item = analyze_email(msg)
-            items.append(item)
-        except Exception:
-            continue
+    total_messages = 0
+
+    if unread_threads:
+        for t in unread_threads:
+            tid = t.get("id")
+            if not tid:
+                continue
+            try:
+                messages = client.get_thread(tid)
+                if not messages:
+                    continue
+                item = analyze_thread(messages)
+                items.append(item)
+                total_messages += len(messages)
+            except Exception:
+                continue
+    else:
+        # Fallback to message-level triage if threads API returns empty
+        unread_messages = client.list_unread_messages(max_results=limit, query=query)
+        for m in unread_messages:
+            mid = m.get("id")
+            if not mid:
+                continue
+            try:
+                msg = client.get_message(mid)
+                item = analyze_email(msg)
+                items.append(item)
+                total_messages += 1
+            except Exception:
+                continue
             
-    batch = TriageBatch(total_unread=len(items), items=items)
+    batch = TriageBatch(total_unread=len(items), total_messages=total_messages, items=items)
     return batch.model_dump()
 
 
@@ -42,7 +62,7 @@ def apply_agent_decisions(
     
     Expected schema for decisions:
     {
-        "mark_as_read": ["message_id_1", "message_id_2"],
+        "mark_as_read": ["message_id_or_thread_id_1", "..."],
         "replies": [{"message_id": "...", "body": "..."}],
         "calendar_events": [{"summary": "...", "start_time": "...", "description": "..."}]
     }
@@ -78,9 +98,10 @@ def apply_agent_decisions(
             )
             results["events_created"].append(res)
 
-    # 3. Process mark as read
-    for mid in decisions.get("mark_as_read", []):
-        success = client.mark_as_read(mid)
-        results["marked_read"][mid] = success
+    # 3. Process mark as read (threads or messages)
+    for target_id in decisions.get("mark_as_read", []):
+        # Try thread modify first, then message modify
+        success = bool(client.mark_thread_as_read(target_id) or client.mark_as_read(target_id))
+        results["marked_read"][target_id] = success
 
     return results

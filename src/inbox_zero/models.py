@@ -51,15 +51,15 @@ class EmailMessage(BaseModel):
 
 
 class TriageItem(BaseModel):
-    """Enriched triage analysis for an individual email."""
-    message_id: str
-    thread_id: str
+    """Enriched triage analysis for a conversation thread or email."""
+    message_id: str = Field(description="ID of the latest/primary message in thread to reply to")
+    thread_id: str = Field(description="Gmail conversation thread ID")
     sender_name: str | None = None
     sender_email: str
     date: str
     subject: str
     title_summary: str = Field(description="One-line punchy summary")
-    brief_summary: str = Field(description="2-3 sentence overview of content")
+    brief_summary: str = Field(description="2-3 sentence overview of conversation")
     category: str = Field(default="General", description="Category e.g. School, Sports, Work, Newsletter")
     action_items: list[str] = Field(default_factory=list, description="Action items requiring user attention")
     calendar_events: list[CalendarEventSuggestion] = Field(
@@ -69,9 +69,14 @@ class TriageItem(BaseModel):
         default_factory=list, description="Suggested quick reply drafts if relevant"
     )
     raw_body_preview: str = ""
+    senders: list[Sender] = Field(default_factory=list, description="All distinct senders in thread")
+    messages: list[EmailMessage] = Field(default_factory=list, description="All messages in thread in chronological order")
+    message_count: int = Field(default=1, description="Total messages in thread")
+    unread_count: int = Field(default=1, description="Number of unread messages in thread")
 
 
 class TriageBatch(BaseModel):
     """A collection of triaged items."""
-    total_unread: int
+    total_unread: int = Field(description="Total unread threads")
+    total_messages: int = Field(default=0, description="Total messages across all threads")
     items: list[TriageItem] = Field(default_factory=list)
