@@ -9,7 +9,7 @@ from inbox_zero.analyzer import (
     analyze_email,
     analyze_thread,
 )
-from inbox_zero.models import EmailMessage, Sender
+from inbox_zero.models import EmailAttachment, EmailMessage, Sender
 
 
 def test_categorization():
@@ -150,4 +150,30 @@ def test_analyze_thread_multi_messages():
     assert "Hanni:" in triage.brief_summary
     assert any("notebook" in a.lower() for a in triage.action_items)
     assert any("Sept 9" in ev.start_time or "September" in ev.start_time for ev in triage.calendar_events)
+
+
+def test_analyze_thread_with_attachments():
+    att1 = EmailAttachment(
+        filename="field_trip_permission.pdf",
+        mime_type="application/pdf",
+        size_bytes=24000,
+        extracted_text="Field trip to Science Museum on Friday, October 16 at 9:00am. Please sign and return by Wednesday.",
+    )
+    msg = EmailMessage(
+        id="m_att",
+        thread_id="t_att",
+        subject="Field Trip Notice",
+        sender=Sender(name="Teacher", email="teacher@school.org"),
+        date="Fri, 21 Aug 2026",
+        body_text="Dear Parents, please see attached permission slip.",
+        attachments=[att1],
+    )
+    triage = analyze_thread([msg])
+    assert len(triage.attachments) == 1
+    assert triage.attachments[0].filename == "field_trip_permission.pdf"
+    # Action item extracted from PDF attachment
+    assert any("sign" in a.lower() for a in triage.action_items)
+    # Calendar date extracted from PDF attachment
+    assert any("October 16" in ev.start_time or "10-16" in ev.start_time or "Science Museum" in ev.summary for ev in triage.calendar_events)
+
 

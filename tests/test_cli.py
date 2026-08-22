@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
 from inbox_zero.cli import app
 from inbox_zero.client import GWSAuthError
-from inbox_zero.models import EmailMessage, Sender
+from inbox_zero.models import EmailAttachment, EmailMessage, Sender
 
 runner = CliRunner()
 
@@ -875,6 +875,42 @@ def test_cli_review_date_descending_order():
         pos_oldest = result.stdout.find("Oldest Thread")
         assert pos_newest != -1 and pos_middle != -1 and pos_oldest != -1
         assert pos_newest < pos_middle < pos_oldest
+
+
+def test_cli_scan_and_review_with_attachments():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        att = EmailAttachment(
+            filename="syllabus.pdf",
+            mime_type="application/pdf",
+            size_bytes=102400,
+            extracted_text="Math 101 Syllabus. Midterm Exam on Friday, October 16.",
+        )
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Course Syllabus",
+                sender=Sender(name="Professor", email="prof@university.edu"),
+                date="Fri, 21 Aug 2026 12:00:00 -0500",
+                body_text="Please find the syllabus attached.",
+                attachments=[att],
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+
+        # Test scan output contains attachment
+        result_scan = runner.invoke(app, ["scan"], input="n\n")
+        assert result_scan.exit_code == 0
+        assert "syllabus.pdf" in result_scan.stdout
+
+        # Test review output contains attachment preview and extracted action/date
+        result_review = runner.invoke(app, ["review"], input="y\n")
+        assert result_review.exit_code == 0
+        assert "syllabus.pdf" in result_review.stdout
+        assert "Attachments" in result_review.stdout
+
 
 
 

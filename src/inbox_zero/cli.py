@@ -24,7 +24,7 @@ from inbox_zero.client import GWSClient, GWSClientError, GWSAuthError
 from inbox_zero.config import load_config
 from inbox_zero.keys import get_single_key
 from inbox_zero.models import EmailMessage, TriageBatch, TriageItem
-from inbox_zero.parser import parse_email_date
+from inbox_zero.parser import parse_email_date, truncate_preview
 
 
 app = typer.Typer(
@@ -168,6 +168,8 @@ def scan(
                 details.append(f"⚡ [bold]{action}[/bold]")
             for event in item.calendar_events[:2]:
                 details.append(f"📅 [cyan]{event.summary}[/cyan]")
+            for att in item.attachments[:2]:
+                details.append(f"📎 [blue]{att.filename}[/blue]")
             if item.suggested_replies:
                 details.append(f"💬 [green]Reply: \"{item.suggested_replies[0][:50]}...\"[/green]")
 
@@ -207,6 +209,8 @@ def scan(
                     details.append(f"⚡ [bold]{action}[/bold]")
                 for event in item.calendar_events[:2]:
                     details.append(f"📅 [cyan]{event.summary}[/cyan]")
+                for att in item.attachments[:2]:
+                    details.append(f"📎 [blue]{att.filename}[/blue]")
                 if item.suggested_replies:
                     details.append(f"💬 [green]Reply: \"{item.suggested_replies[0][:50]}...\"[/green]")
 
@@ -364,11 +368,28 @@ def review(
             for msg_idx, msg in enumerate(item.messages, 1):
                 unread_badge = " *(UNREAD)*" if msg.is_unread else ""
                 msg_body = msg.body_text.strip() or "_No text content_"
+                if msg.attachments:
+                    att_md_list = []
+                    for att in msg.attachments:
+                        size_str = f" ({att.size_bytes // 1024} KB)" if att.size_bytes else ""
+                        extracted_snippet = f"\n```\n{att.extracted_text[:600]}\n```" if att.extracted_text else ""
+                        att_md_list.append(f"📎 **Attachment:** `{att.filename}`{size_str}{extracted_snippet}")
+                    msg_body += "\n\n" + "\n\n".join(att_md_list)
                 thread_messages_md.append(
                     f"#### 💬 [{msg_idx}/{len(item.messages)}] From {msg.sender.name or 'Unknown'} `<{msg.sender.email}>` ({msg.date}){unread_badge}\n\n{msg_body}"
                 )
 
             messages_block = "\n\n---\n\n".join(thread_messages_md)
+
+            # Format attachments section for review card
+            attachments_section = ""
+            if item.attachments:
+                att_entries = []
+                for att in item.attachments:
+                    size_str = f" ({att.size_bytes // 1024} KB)" if att.size_bytes else ""
+                    preview_text = truncate_preview(att.extracted_text, 140) if att.extracted_text else "No text extracted"
+                    att_entries.append(f"- 📎 **{att.filename}**{size_str}\n  > _{preview_text}_")
+                attachments_section = f"\n### 📎 Attachments ({len(item.attachments)})\n" + "\n".join(att_entries) + "\n"
 
             # Format suggested replies
             replies_md = (
@@ -387,7 +408,7 @@ def review(
 ---
 ### 📝 Overview
 {item.brief_summary}
-
+{attachments_section}
 ### ⚡ Action Items
 {chr(10).join(f"- {a}" for a in item.action_items) if item.action_items else "_None detected_"}
 

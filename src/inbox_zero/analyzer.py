@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from inbox_zero.models import CalendarEventSuggestion, EmailMessage, Sender, TriageItem
+from inbox_zero.models import CalendarEventSuggestion, EmailAttachment, EmailMessage, Sender, TriageItem
 from inbox_zero.parser import truncate_preview
 
 
@@ -248,6 +248,11 @@ def analyze_thread(messages: list[EmailMessage]) -> TriageItem:
 
     title_summary = clean_subject(root.subject)
 
+    # Collect all attachments across thread
+    all_attachments: list[EmailAttachment] = []
+    for m in messages:
+        all_attachments.extend(m.attachments)
+
     # Conversation summary
     if len(messages) == 1:
         _, brief_summary = generate_title_and_summary(latest)
@@ -259,7 +264,11 @@ def analyze_thread(messages: list[EmailMessage]) -> TriageItem:
             parts.append(f"{s_name}: {m_sum}")
         brief_summary = " | ".join(parts)
 
+    att_texts = [f"{att.filename}: {att.extracted_text}" for att in all_attachments if att.extracted_text]
     combined_body = "\n\n".join(m.body_text for m in messages)
+    if att_texts:
+        combined_body += "\n\n" + "\n\n".join(att_texts)
+
     category = categorize_email(
         root.subject,
         latest.sender.email,
@@ -275,6 +284,12 @@ def analyze_thread(messages: list[EmailMessage]) -> TriageItem:
             if action.lower() not in seen_actions:
                 seen_actions.add(action.lower())
                 action_items.append(action)
+        for att in m.attachments:
+            if att.extracted_text:
+                for action in extract_action_items(att.extracted_text):
+                    if action.lower() not in seen_actions:
+                        seen_actions.add(action.lower())
+                        action_items.append(f"[📎 {att.filename}] {action}")
 
     # Extract all calendar events across the thread (deduplicated)
     calendar_events: list[CalendarEventSuggestion] = []
@@ -284,6 +299,12 @@ def analyze_thread(messages: list[EmailMessage]) -> TriageItem:
             if ev.summary.lower() not in seen_events:
                 seen_events.add(ev.summary.lower())
                 calendar_events.append(ev)
+        for att in m.attachments:
+            if att.extracted_text:
+                for ev in extract_dates_and_events(f"{att.filename}: {m.subject}", att.extracted_text, m.date):
+                    if ev.summary.lower() not in seen_events:
+                        seen_events.add(ev.summary.lower())
+                        calendar_events.append(ev)
 
     # Suggested replies targeting the latest message in thread
     suggested_replies = suggest_replies(latest, category)
@@ -301,6 +322,7 @@ def analyze_thread(messages: list[EmailMessage]) -> TriageItem:
         action_items=action_items,
         calendar_events=calendar_events,
         suggested_replies=suggested_replies,
+        attachments=all_attachments,
         raw_body_preview=truncate_preview(latest.body_text, 250),
         senders=senders,
         messages=messages,

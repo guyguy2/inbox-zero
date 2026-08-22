@@ -7,8 +7,13 @@ import logging
 import subprocess
 from typing import Any
 
-from inbox_zero.models import EmailMessage, Sender
-from inbox_zero.parser import extract_clean_email_body
+from inbox_zero.models import EmailAttachment, EmailMessage, Sender
+from inbox_zero.parser import (
+    decode_base64url,
+    extract_attachment_metadata,
+    extract_clean_email_body,
+    parse_attachment_bytes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,8 +126,30 @@ class GWSClient:
             return data
         return []
 
-    def get_message(self, message_id: str) -> EmailMessage:
-        """Read a message and return parsed EmailMessage."""
+    def get_attachment_bytes(self, message_id: str, attachment_id: str) -> bytes:
+        """Fetch raw attachment bytes by attachment ID using gws."""
+        cmd = [
+            "gws",
+            "gmail",
+            "users",
+            "messages",
+            "attachments",
+            "get",
+            "--params",
+            json.dumps({"userId": "me", "messageId": message_id, "id": attachment_id}),
+            "--format",
+            "json",
+        ]
+        try:
+            raw = self._run_cmd(cmd)
+            if isinstance(raw, dict) and "data" in raw:
+                return decode_base64url(raw["data"])
+        except Exception as e:
+            logger.debug("Could not fetch attachment %s for message %s: %s", attachment_id, message_id, e)
+        return b""
+
+    def get_message(self, message_id: str, fetch_attachments: bool = True) -> EmailMessage:
+        """Read a message and return parsed EmailMessage with attachments."""
         cmd = [
             "gws",
             "gmail",
@@ -142,6 +169,49 @@ class GWSClient:
         body_html = raw.get("body_html")
         cleaned_body = extract_clean_email_body(body_text, body_html)
 
+        attachments: list[EmailAttachment] = []
+        if fetch_attachments:
+            try:
+                # Inspect message payload to discover any attachments
+                msg_cmd = [
+                    "gws",
+                    "gmail",
+                    "users",
+                    "messages",
+                    "get",
+                    "--params",
+                    json.dumps({"userId": "me", "id": message_id, "format": "full"}),
+                    "--format",
+                    "json",
+                ]
+                msg_raw = self._run_cmd(msg_cmd)
+                if isinstance(msg_raw, dict) and "payload" in msg_raw:
+                    meta_list = extract_attachment_metadata(msg_raw["payload"])
+                    for meta in meta_list:
+                        att_bytes = b""
+                        if meta.get("inline_data"):
+                            att_bytes = decode_base64url(meta["inline_data"])
+                        elif meta.get("id"):
+                            att_bytes = self.get_attachment_bytes(message_id, meta["id"])
+
+                        extracted_text = ""
+                        if att_bytes:
+                            extracted_text = parse_attachment_bytes(
+                                att_bytes, meta["filename"], meta.get("mime_type", "")
+                            )
+
+                        attachments.append(
+                            EmailAttachment(
+                                id=meta.get("id"),
+                                filename=meta["filename"],
+                                mime_type=meta.get("mime_type", "application/octet-stream"),
+                                size_bytes=meta.get("size_bytes", len(att_bytes)),
+                                extracted_text=extracted_text,
+                            )
+                        )
+            except Exception as e:
+                logger.debug("Could not inspect attachments for message %s: %s", message_id, e)
+
         return EmailMessage(
             id=message_id,
             thread_id=raw.get("thread_id") or message_id,
@@ -152,6 +222,7 @@ class GWSClient:
             body_html=body_html,
             snippet=raw.get("snippet"),
             is_unread=True,
+            attachments=attachments,
         )
 
     def get_thread(self, thread_id: str) -> list[EmailMessage]:

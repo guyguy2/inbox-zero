@@ -155,3 +155,52 @@ def test_client_invalid_json_error():
         mock_run.return_value = MagicMock(returncode=0, stdout="not-json-content", stderr="")
         with pytest.raises(GWSClientError, match="Invalid JSON"):
             client.list_unread_messages()
+
+
+def test_get_message_with_attachments():
+    client = GWSClient()
+    mock_read_output = json.dumps({
+        "thread_id": "t1",
+        "from": {"name": "Teacher", "email": "teacher@school.org"},
+        "subject": "School Syllabus",
+        "date": "Fri, 21 Aug 2026",
+        "body_text": "Please see attached syllabus.",
+    })
+    mock_get_output = json.dumps({
+        "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+                {
+                    "mimeType": "text/plain",
+                    "filename": "notes.txt",
+                    "body": {"attachmentId": "att_1", "size": 50},
+                }
+            ],
+        }
+    })
+    mock_att_output = json.dumps({
+        "data": "UGxlYXNlIGJyaW5nIG5vdGVib29rcyBieSBNb25kYXkgOWFtLg", # "Please bring notebooks by Monday 9am."
+    })
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=mock_read_output, stderr=""),
+            MagicMock(returncode=0, stdout=mock_get_output, stderr=""),
+            MagicMock(returncode=0, stdout=mock_att_output, stderr=""),
+        ]
+        msg = client.get_message("msg_123")
+        assert len(msg.attachments) == 1
+        assert msg.attachments[0].filename == "notes.txt"
+        assert "notebooks" in msg.attachments[0].extracted_text
+
+
+def test_get_attachment_bytes():
+    client = GWSClient()
+    mock_att_output = json.dumps({
+        "data": "SGVsbG8",
+    })
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout=mock_att_output, stderr="")
+        data = client.get_attachment_bytes("msg_123", "att_999")
+        assert data == b"Hello"
+

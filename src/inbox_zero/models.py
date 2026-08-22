@@ -37,6 +37,15 @@ class CalendarEventSuggestion(BaseModel):
     location: str | None = Field(default=None, description="Event location or link")
 
 
+class EmailAttachment(BaseModel):
+    """An attachment belonging to an email message."""
+    id: str | None = Field(default=None, description="Attachment ID in Gmail API if available")
+    filename: str = Field(description="Attachment filename e.g. schedule.pdf")
+    mime_type: str = Field(default="application/octet-stream", description="MIME type of attachment")
+    size_bytes: int = Field(default=0, description="Attachment size in bytes")
+    extracted_text: str = Field(default="", description="Extracted plain text from attachment e.g. PDF text")
+
+
 class EmailMessage(BaseModel):
     """Raw/normalized email message from Google Workspace."""
     id: str
@@ -48,6 +57,7 @@ class EmailMessage(BaseModel):
     body_html: str | None = None
     snippet: str | None = None
     is_unread: bool = True
+    attachments: list[EmailAttachment] = Field(default_factory=list, description="Parsed email attachments")
 
 
 class TriageItem(BaseModel):
@@ -67,6 +77,9 @@ class TriageItem(BaseModel):
     )
     suggested_replies: list[str] = Field(
         default_factory=list, description="Suggested quick reply drafts if relevant"
+    )
+    attachments: list[EmailAttachment] = Field(
+        default_factory=list, description="All attachments across the thread"
     )
     raw_body_preview: str = ""
     senders: list[Sender] = Field(default_factory=list, description="All distinct senders in thread")

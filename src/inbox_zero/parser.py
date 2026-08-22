@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import base64
+import io
 import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from typing import Any
 from bs4 import BeautifulSoup
+import pypdf
 
 
 def parse_email_date(date_str: str | None) -> datetime:
@@ -27,6 +31,91 @@ def parse_email_date(date_str: str | None) -> datetime:
         pass
     return datetime.min.replace(tzinfo=timezone.utc)
 
+
+def decode_base64url(s: str) -> bytes:
+    """Decode a base64url-encoded string (RFC 4648) safely."""
+    if not s:
+        return b""
+    s_clean = s.replace("-", "+").replace("_", "/")
+    missing_padding = len(s_clean) % 4
+    if missing_padding:
+        s_clean += "=" * (4 - missing_padding)
+    try:
+        return base64.b64decode(s_clean)
+    except Exception:
+        return b""
+
+
+def extract_attachment_metadata(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Recursively discover all attachment parts in a Gmail message payload."""
+    attachments: list[dict[str, Any]] = []
+
+    def walk_parts(part: dict[str, Any]) -> None:
+        filename = part.get("filename", "").strip()
+        body = part.get("body", {})
+        att_id = body.get("attachmentId")
+        inline_data = body.get("data")
+        size = body.get("size", 0)
+        mime_type = part.get("mimeType", "application/octet-stream")
+
+        if filename and (att_id or inline_data or size > 0):
+            attachments.append({
+                "id": att_id,
+                "filename": filename,
+                "mime_type": mime_type,
+                "size_bytes": size,
+                "inline_data": inline_data,
+            })
+
+        for sub_part in part.get("parts", []):
+            walk_parts(sub_part)
+
+    if isinstance(payload, dict):
+        walk_parts(payload)
+    return attachments
+
+
+def parse_attachment_bytes(data: bytes, filename: str, mime_type: str = "") -> str:
+    """Extract plain text from an attachment's raw byte stream (PDF, text, CSV, HTML, etc.)."""
+    if not data:
+        return ""
+    fn_lower = filename.lower()
+    mime_lower = mime_type.lower()
+
+    # PDF documents
+    if fn_lower.endswith(".pdf") or "pdf" in mime_lower:
+        try:
+            reader = pypdf.PdfReader(io.BytesIO(data))
+            pages_text: list[str] = []
+            for page in reader.pages:
+                txt = page.extract_text() or ""
+                if txt.strip():
+                    pages_text.append(txt.strip())
+            return "\n\n".join(pages_text).strip()
+        except Exception:
+            return ""
+
+    # Plain text, CSV, Markdown, JSON, XML, log files
+    if (
+        fn_lower.endswith((".txt", ".md", ".csv", ".tsv", ".json", ".xml", ".log", ".yaml", ".yml"))
+        or mime_lower.startswith("text/")
+        or "json" in mime_lower
+        or "xml" in mime_lower
+        or "csv" in mime_lower
+    ):
+        try:
+            text = data.decode("utf-8", errors="replace")
+            if fn_lower.endswith((".html", ".htm")) or "html" in mime_lower:
+                return clean_html_to_text(text)
+            return text.strip()
+        except Exception:
+            try:
+                text = data.decode("latin-1", errors="replace")
+                return text.strip()
+            except Exception:
+                return ""
+
+    return ""
 
 
 def clean_html_to_text(html_content: str) -> str:

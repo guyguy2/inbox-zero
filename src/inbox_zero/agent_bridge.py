@@ -23,7 +23,7 @@ class AgentExecutionError(Exception):
 
 
 DEFAULT_AGENT_SYSTEM_PROMPT = """You are an intelligent email triage assistant.
-You are given a JSON payload containing unread email threads with extracted action items, dates, and sender information.
+You are given a JSON payload containing unread email threads with extracted action items, dates, attachments, and sender information.
 Your task is to review the unread items and produce a JSON decision object with three main actions:
 1. "replies": List of replies to send for relevant emails (e.g. acknowledging instructions, confirming attendance, answering questions). Do not reply to automated newsletters.
    Each reply object must have:

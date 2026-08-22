@@ -1,10 +1,15 @@
 from inbox_zero.parser import (
     clean_html_to_text,
+    decode_base64url,
+    extract_attachment_metadata,
     extract_clean_email_body,
+    parse_attachment_bytes,
     parse_email_date,
     truncate_preview,
 )
 from inbox_zero.models import Sender
+import io
+import pypdf
 
 
 def test_clean_html():
@@ -70,4 +75,64 @@ def test_parse_email_date():
     dt_none = parse_email_date(None)
     dt_invalid = parse_email_date("not-a-date")
     assert dt_empty == dt_none == dt_invalid
+
+
+def test_decode_base64url():
+    assert decode_base64url("SGVsbG8gV29ybGQ") == b"Hello World"
+    assert decode_base64url("") == b""
+
+
+def test_extract_attachment_metadata():
+    payload = {
+        "mimeType": "multipart/mixed",
+        "parts": [
+            {
+                "mimeType": "text/plain",
+                "filename": "",
+                "body": {"size": 100},
+            },
+            {
+                "mimeType": "application/pdf",
+                "filename": "schedule.pdf",
+                "body": {"attachmentId": "att_999", "size": 15000},
+            },
+            {
+                "mimeType": "text/csv",
+                "filename": "roster.csv",
+                "body": {"data": "TmFtZSxSb2xlCkFsaWNlLEZvcndhcmQ", "size": 30},
+            },
+        ],
+    }
+    atts = extract_attachment_metadata(payload)
+    assert len(atts) == 2
+    assert atts[0]["filename"] == "schedule.pdf"
+    assert atts[0]["id"] == "att_999"
+    assert atts[1]["filename"] == "roster.csv"
+    assert atts[1]["inline_data"] == "TmFtZSxSb2xlCkFsaWNlLEZvcndhcmQ"
+
+
+def test_parse_attachment_bytes_text():
+    raw_csv = b"Player,Jersey\nBen,10\nLiam,7"
+    extracted = parse_attachment_bytes(raw_csv, "roster.csv", "text/csv")
+    assert "Ben,10" in extracted
+
+    raw_html = b"<html><body><h3>Meeting Agenda</h3><p>Discuss budget.</p></body></html>"
+    extracted_html = parse_attachment_bytes(raw_html, "agenda.html", "text/html")
+    assert "Meeting Agenda" in extracted_html
+    assert "Discuss budget" in extracted_html
+
+
+def test_parse_attachment_bytes_pdf():
+    # Construct a minimal in-memory PDF using pypdf writer
+    writer = pypdf.PdfWriter()
+    page = writer.add_blank_page(width=200, height=200)
+    # Write stream
+    stream = io.BytesIO()
+    writer.write(stream)
+    pdf_bytes = stream.getvalue()
+
+    # Even with blank page, it should parse without crashing
+    text = parse_attachment_bytes(pdf_bytes, "blank.pdf", "application/pdf")
+    assert isinstance(text, str)
+
 
