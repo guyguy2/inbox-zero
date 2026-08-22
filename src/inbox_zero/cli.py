@@ -161,7 +161,7 @@ def scan(
             else:
                 sender_display = f"{item.sender_name or item.sender_email}\n[dim]{item.date[:16]}[/dim]"
 
-            summary_str = f"[bold]{item.title_summary}[/bold]\n[dim]{item.brief_summary[:120]}...[/dim]"
+            summary_str = f"[bold bright_cyan]{item.title_summary}[/bold bright_cyan]\n[dim]{item.brief_summary[:120]}...[/dim]"
 
             details: list[str] = []
             for action in item.action_items[:2]:
@@ -200,7 +200,7 @@ def scan(
                 else:
                     sender_display = f"{item.sender_name or item.sender_email}\n[dim]{item.date[:16]}[/dim]"
 
-                summary_str = f"[bold]{item.title_summary}[/bold]\n[dim]{item.brief_summary[:120]}...[/dim]"
+                summary_str = f"[bold bright_cyan]{item.title_summary}[/bold bright_cyan]\n[dim]{item.brief_summary[:120]}...[/dim]"
 
                 details: list[str] = []
                 for action in item.action_items[:2]:
@@ -398,15 +398,15 @@ def review(
 """
             batch_num = (idx // 10) + 1
             panel_title = (
-                f"[{idx + 1}/{total_threads}] (Batch {batch_num}/{total_batches}) {item.title_summary}"
+                f"[bold cyan]\\[{idx + 1}/{total_threads}][/bold cyan] (Batch {batch_num}/{total_batches}) [bold bright_cyan]{item.title_summary}[/bold bright_cyan]"
                 if total_threads > 10
-                else f"[{idx + 1}/{total_threads}] {item.title_summary}"
+                else f"[bold cyan]\\[{idx + 1}/{total_threads}][/bold cyan] [bold bright_cyan]{item.title_summary}[/bold bright_cyan]"
             )
             console.print(
                 Panel(
                     Markdown(body_content),
                     title=panel_title,
-                    border_style="bright_blue",
+                    border_style="cyan",
                 )
             )
 
@@ -454,7 +454,7 @@ def review(
                     console.print(
                         Panel(
                             Markdown(f"### 🧵 Conversation Thread\n\n{messages_block}"),
-                            title=f"Full Thread: {item.title_summary}",
+                            title=f"Full Thread: [bold bright_cyan]{item.title_summary}[/bold bright_cyan]",
                             border_style="cyan",
                         )
                     )
