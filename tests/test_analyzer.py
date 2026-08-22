@@ -177,3 +177,16 @@ def test_analyze_thread_with_attachments():
     assert any("October 16" in ev.start_time or "10-16" in ev.start_time or "Science Museum" in ev.summary for ev in triage.calendar_events)
 
 
+def test_extract_dates_and_events_details():
+    msg_body = "If you’re interested in being a Room Parent, please submit your form by Friday, September 4 at 5:00 PM in the School Library."
+    events = extract_dates_and_events("Room Parent Info", msg_body)
+    assert len(events) == 1
+    ev = events[0]
+    assert "Friday, September 4" in ev.start_time
+    assert "5:00 PM" in ev.start_time
+    assert ev.location == "School Library"
+    assert ev.description == msg_body
+    assert "Room Parent" in ev.summary
+
+
+

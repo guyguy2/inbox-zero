@@ -398,6 +398,20 @@ def review(
                 else "_No reply needed (automated or acknowledged)_"
             )
 
+            # Format calendar events
+            if item.calendar_events:
+                cal_entries = []
+                for e in item.calendar_events:
+                    loc_part = f" @ {e.location}" if e.location else ""
+                    time_part = f"{e.start_time} - {e.end_time}" if e.end_time else e.start_time
+                    entry = f"- **{e.summary}** ({time_part}{loc_part})"
+                    if e.description and e.description.strip() != e.summary.strip():
+                        entry += f"\n  > _{e.description.strip()}_"
+                    cal_entries.append(entry)
+                calendar_section_md = "\n".join(cal_entries)
+            else:
+                calendar_section_md = "_None detected_"
+
             thread_section = f"\n---\n### 🧵 Conversation Thread\n\n{messages_block}\n" if display_body else ""
 
             body_content = f"""
@@ -413,7 +427,7 @@ def review(
 {chr(10).join(f"- {a}" for a in item.action_items) if item.action_items else "_None detected_"}
 
 ### 📅 Calendar Dates / Events
-{chr(10).join(f"- **{e.summary}** ({e.start_time})" for e in item.calendar_events) if item.calendar_events else "_None detected_"}
+{calendar_section_md}
 
 ### 💬 Suggested Replies (Reply to Thread)
 {replies_md}
@@ -550,10 +564,35 @@ def review(
                         console.print("[yellow]No calendar dates/events detected in this thread.[/yellow]")
                         continue
 
-                    for ev in item.calendar_events:
-                        console.print(f"Add event '[bold cyan]{ev.summary}[/bold cyan]' ({ev.start_time}) to calendar? [⏎ / y] Yes  [n] Skip: ", end="")
+                    cal_cancelled = False
+                    total_events = len(item.calendar_events)
+                    for ev_idx, ev in enumerate(item.calendar_events, 1):
+                        event_header = (
+                            f"[bold cyan]📅 Calendar Event ({ev_idx}/{total_events}):[/bold cyan]"
+                            if total_events > 1
+                            else "[bold cyan]📅 Calendar Event:[/bold cyan]"
+                        )
+                        console.print(f"\n{event_header}")
+                        console.print(f"  [bold]Title:[/bold]    [bold cyan]{ev.summary}[/bold cyan]")
+                        time_display = f"{ev.start_time} - {ev.end_time}" if ev.end_time else ev.start_time
+                        console.print(f"  [bold]When:[/bold]     [yellow]{time_display}[/yellow]")
+                        if ev.location:
+                            console.print(f"  [bold]Where:[/bold]    [magenta]{ev.location}[/magenta]")
+                        if ev.description and ev.description.strip() != ev.summary.strip():
+                            console.print(f"  [bold]Details:[/bold]  [dim]{ev.description.strip()}[/dim]")
+
+                        console.print(
+                            "[bold]Add this event to calendar?[/bold] [bold green][⏎ / y] Yes[/bold green]  [yellow][n] Skip[/yellow]  [dim][q] Cancel[/dim]: ",
+                            end="",
+                        )
                         ev_confirm = get_single_key().strip().lower()
                         console.print()
+
+                        if ev_confirm in ("q", "quit", "exit", "esc"):
+                            console.print("[dim]Calendar review cancelled.[/dim]")
+                            cal_cancelled = True
+                            break
+
                         if ev_confirm in ("enter", "y", "yes", "d", "right", ""):
                             try:
                                 client.insert_calendar_event(
@@ -568,6 +607,9 @@ def review(
                                 console.print(f"[red]Failed to insert calendar event: {e}[/red]")
                         else:
                             console.print("[dim]Skipped adding event.[/dim]")
+
+                    if cal_cancelled:
+                        continue
 
                     console.print("[bold]Now mark this thread as read? [⏎ / y] Yes  [n] No:[/bold] ", end="")
                     mark_confirm = get_single_key().strip().lower()
@@ -684,7 +726,9 @@ def agent(
     if events:
         console.print(f"\n[bold]📅 Calendar Events ({len(events)}):[/bold]")
         for ev in events:
-            console.print(f"  • [cyan]{ev.get('summary')}[/cyan] at [yellow]{ev.get('start_time')}[/yellow]")
+            loc_str = f" @ [magenta]{ev.get('location')}[/magenta]" if ev.get("location") else ""
+            desc_str = f"\n    [dim]Details: {ev.get('description')}[/dim]" if ev.get("description") and ev.get("description") != ev.get("summary") else ""
+            console.print(f"  • [cyan]{ev.get('summary')}[/cyan] at [yellow]{ev.get('start_time')}[/yellow]{loc_str}{desc_str}")
 
     if marked_read:
         console.print(f"\n[bold]✉️  Mark as Read ({len(marked_read)} items):[/bold]")

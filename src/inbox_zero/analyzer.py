@@ -110,18 +110,18 @@ def extract_dates_and_events(subject: str, body: str, ref_date_str: str | None =
 
                 # Build event title
                 clean_snippet = re.sub(r"\s+", " ", line_clean)
-                if len(clean_snippet) > 60:
-                    clean_snippet = clean_snippet[:60].rsplit(" ", 1)[0] + "..."
+                if len(clean_snippet) > 100:
+                    clean_snippet = clean_snippet[:100].rsplit(" ", 1)[0] + "..."
 
                 event_title = f"{clean_snippet}"
 
                 # Extract location if mentioned (e.g. 'at Wood Oaks Field 3' or 'in School Gym')
                 loc = None
-                at_match = re.search(r"\bat\s+([A-Z][A-Za-z0-9\s,\-]{2,40}?)(?:\.|\s+in\b|$)", line_clean)
+                at_match = re.search(r"\bat\s+([A-Z][A-Za-z0-9\s,\-]{2,40}?)(?:\.|\s+in\b|\s+on\b|$)", line_clean)
                 if at_match and not re.search(r"^\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)", at_match.group(1).strip(), re.IGNORECASE):
                     loc = at_match.group(1).strip().rstrip(".,")
                 if not loc:
-                    in_match = re.search(r"\bin\s+(?:the\s+)?([A-Z][A-Za-z0-9\s,\-]{2,40}?)(?:\.|$)", line_clean)
+                    in_match = re.search(r"\bin\s+(?:the\s+)?([A-Z][A-Za-z0-9\s,\-]{2,40}?)(?:\.|\s+on\b|\s+at\b|$)", line_clean)
                     if in_match:
                         loc = in_match.group(1).strip().rstrip(".,")
 

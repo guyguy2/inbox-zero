@@ -347,6 +347,61 @@ def test_cli_review_mode_calendar():
         assert "Sept. 9" in call_kwargs["start_time"] or "09-09" in call_kwargs["start_time"]
 
 
+def test_cli_review_mode_calendar_multiline_display():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Room Parent Volunteer Meeting",
+                sender=Sender(name="Teacher Smith", email="smith@school.org"),
+                date="Fri, 21 Aug 2026",
+                body_text="If you’re interested in being a Room Parent, please join our planning meeting in School Library on Friday, September 4 at 5:00 PM.",
+            )
+        ]
+        instance.insert_calendar_event.return_value = {"id": "ev1"}
+        instance.mark_thread_as_read.return_value = True
+        result = runner.invoke(app, ["review"], input="c\ny\ny\n")
+        assert result.exit_code == 0
+        assert "📅 Calendar Event" in result.stdout
+        assert "Title:" in result.stdout
+        assert "When:" in result.stdout
+        assert "Where:" in result.stdout
+        assert "School Library" in result.stdout
+        assert "Details:" in result.stdout
+        assert "If you’re interested in being a Room Parent" in result.stdout
+        assert "Add this event to calendar?" in result.stdout
+        assert "Added to Google Calendar" in result.stdout
+
+
+def test_cli_review_mode_calendar_skip_and_cancel():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Meeting Notice",
+                sender=Sender(name="Colleague", email="colleague@work.com"),
+                date="Fri, 21 Aug 2026",
+                body_text="Sync meeting on Friday, September 4 at 2:00 PM.",
+            )
+        ]
+        # First test: 'c' -> 'n' (skip event) -> 'n' (do not mark read) -> 'q' (quit review)
+        result_skip = runner.invoke(app, ["review"], input="c\nn\nn\nq\n")
+        assert result_skip.exit_code == 0
+        assert "Skipped adding event." in result_skip.stdout
+        instance.insert_calendar_event.assert_not_called()
+
+        # Second test: 'c' -> 'q' (cancel calendar review) -> 'q' (quit review)
+        result_cancel = runner.invoke(app, ["review"], input="c\nq\nq\n")
+        assert result_cancel.exit_code == 0
+        assert "Calendar review cancelled." in result_cancel.stdout
+
+
 def test_cli_review_mode_default_hides_body():
     with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
         instance = mock_client_cls.return_value
