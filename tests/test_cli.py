@@ -205,7 +205,7 @@ def test_cli_review_mode_default_hides_body():
         # Conversation Thread header and raw body text beyond 3 sentences should NOT appear by default
         assert "### 🧵 Conversation Thread" not in result.stdout
         assert "RAW_DETAILED_BODY_PARAGRAPH_ONLY_IN_THREAD_VIEW" not in result.stdout
-        assert "[v] View Full Email" in result.stdout
+        assert "View Full Email" in result.stdout
 
 
 def test_cli_review_mode_show_body_flag():
@@ -445,6 +445,118 @@ def test_cli_no_args_shows_help():
     assert "scan" in result.stdout
     assert "review" in result.stdout
     assert "agent" in result.stdout
+
+
+def test_cli_review_mode_enter_key_marks_read():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Quick Note",
+                sender=Sender(name="Alice", email="alice@example.com"),
+                date="Fri, 21 Aug 2026",
+                body_text="Hello world",
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+        # Press Enter directly (\n)
+        result = runner.invoke(app, ["review"], input="\n")
+        assert result.exit_code == 0
+        assert "Marked thread as read" in result.stdout
+
+
+def test_cli_review_mode_skip_shortcut():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Quick Note",
+                sender=Sender(name="Alice", email="alice@example.com"),
+                date="Fri, 21 Aug 2026",
+                body_text="Hello world",
+            )
+        ]
+        # Press 's' (skip / keep unread)
+        result = runner.invoke(app, ["review"], input="s\n")
+        assert result.exit_code == 0
+        assert "Kept thread unread" in result.stdout
+        instance.mark_thread_as_read.assert_not_called()
+
+
+def test_cli_review_mode_help_shortcut():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}]
+        instance.get_thread.return_value = [
+            EmailMessage(
+                id="m1",
+                thread_id="t1",
+                subject="Quick Note",
+                sender=Sender(name="Alice", email="alice@example.com"),
+                date="Fri, 21 Aug 2026",
+                body_text="Hello world",
+            )
+        ]
+        instance.mark_thread_as_read.return_value = True
+        # Press '?' for help, then '\n' (enter) to mark read
+        result = runner.invoke(app, ["review"], input="?\n\n")
+        assert result.exit_code == 0
+        assert "Keyboard Shortcuts" in result.stdout
+        assert "Marked thread as read" in result.stdout
+
+
+def test_cli_review_mode_previous_navigation():
+    with patch("inbox_zero.cli.GWSClient") as mock_client_cls:
+        instance = mock_client_cls.return_value
+        instance.list_unread_threads.return_value = [{"id": "t1"}, {"id": "t2"}]
+        instance.get_thread.side_effect = [
+            [
+                EmailMessage(
+                    id="m1",
+                    thread_id="t1",
+                    subject="Email 1",
+                    sender=Sender(name="User 1", email="user1@example.com"),
+                    date="Fri, 21 Aug 2026",
+                    body_text="First message",
+                )
+            ],
+            [
+                EmailMessage(
+                    id="m2",
+                    thread_id="t2",
+                    subject="Email 2",
+                    sender=Sender(name="User 2", email="user2@example.com"),
+                    date="Fri, 21 Aug 2026",
+                    body_text="Second message",
+                )
+            ],
+            [
+                EmailMessage(
+                    id="m1",
+                    thread_id="t1",
+                    subject="Email 1",
+                    sender=Sender(name="User 1", email="user1@example.com"),
+                    date="Fri, 21 Aug 2026",
+                    body_text="First message",
+                )
+            ],
+        ]
+        instance.mark_thread_as_read.return_value = True
+        # Email 1: skip (s) -> moves to Email 2
+        # Email 2: go back (p) -> moves back to Email 1
+        # Email 1: mark read (\n) -> moves to Email 2
+        # Email 2: mark read (\n) -> finishes
+        result = runner.invoke(app, ["review"], input="s\np\n\n\n")
+        assert result.exit_code == 0
+        assert "Email 1" in result.stdout
+        assert "Email 2" in result.stdout
+
 
 
 

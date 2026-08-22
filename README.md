@@ -3,7 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![Package Manager](https://img.shields.io/badge/managed%20by-uv-purple.svg)](https://github.com/astral-sh/uv)
 [![CLI Integration](https://img.shields.io/badge/integration-Google%20Workspace%20CLI%20(gws)-green.svg)](https://github.com/googleworkspace/cli)
-[![Tests](https://img.shields.io/badge/tests-81%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-89%20passed-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > Intelligent, deterministic Email Triage, Action Item Extraction, Contextual Reply Generation, and Google Calendar Scheduling powered by **Google Workspace CLI (`gws`)**, **UV**, and **Pluggable AI Agents (AGY, Claude Code, Codex, Grok)**.
@@ -68,6 +68,7 @@ inbox_zero/
 │       ├── parser.py           # BeautifulSoup HTML cleaner & disclaimer filter
 │       ├── analyzer.py         # Deterministic date/action heuristics & smart replies
 │       ├── agent_bridge.py     # Pluggable AI Agent bridge & execution engine
+│       ├── keys.py             # Single-keypress & directional arrow navigation reader
 │       └── cli.py              # Interactive Rich / Typer terminal application
 └── tests/
     ├── test_config.py          # Configuration loading & override tests
@@ -76,6 +77,7 @@ inbox_zero/
     ├── test_client.py          # GWS client auth checks, timeouts & command tests
     ├── test_models.py          # Pydantic schema validation & serialization tests
     ├── test_agent_bridge.py    # AI Agent bridge & execution tests
+    ├── test_keys.py            # Terminal single-keypress & alias mapping tests
     └── test_cli.py             # Typer CLI test suite (scan, review, agent, mark-read)
 ```
 
@@ -156,18 +158,21 @@ uv run inbox-zero scan --limit 10 --query "is:unread from:teacher@nb27.org"
 ```
 
 ### 2. Interactive Review Mode
-Step through unread emails one by one. By default, review mode displays the **title, summary, action items, calendar events, and suggested replies** without cluttering the screen with full email bodies.
+Step through unread emails one by one with **instant single-keypress triage** and **directional arrow navigation**. By default, review mode displays the **title, summary, action items, calendar events, and suggested replies** without cluttering the screen with full email bodies.
 
 ```bash
 uv run inbox-zero review
 ```
 
-- `[y]` **Mark Read**: Removes the unread label in Gmail.
-- `[n]` **Keep Unread**: Leaves email untouched.
-- `[c]` **Add to Calendar**: Inserts detected dates/times into Google Calendar.
-- `[r]` **Send Reply**: Choose a suggested draft or compose a custom reply.
-- `[v]` **View Full Email**: Expand and view the entire conversation thread body on demand for that message.
-- `[q]` **Quit**: Exit triage safely.
+#### ⌨️ Single-Keypress & Arrow Controls
+- **`[⏎]` (Enter)** or **`[→]` (Right Arrow)** or **`[d]`**: **Mark Read & Next** (Instantly mark thread read in Gmail and advance).
+- **`[←]` (Left Arrow)** or **`[s]`**: **Keep Unread / Skip** (Leave email unread and advance).
+- **`[↑]` (Up Arrow)** or **`[p]`**: **Previous Email** (Go back to the previous thread).
+- **`[↓]` (Down Arrow)** or **`[v]`**: **View Full Thread** (Expand and view full email body).
+- **`[r]`**: **Send Reply** (Instantly pick suggested replies `[1]`, `[2]` or type custom reply).
+- **`[c]`**: **Add to Calendar** (Schedule detected meeting/date to Google Calendar).
+- **`[?]` / `[h]`**: **Help** (Show interactive keyboard shortcuts).
+- **`[q]` / `[Esc]`**: **Quit** interactive review.
 
 #### Review Flags & Overrides
 - `--show-body`: Show the full email thread body by default during review.

@@ -22,6 +22,7 @@ from inbox_zero.agent_bridge import (
 from inbox_zero.analyzer import analyze_email, analyze_thread
 from inbox_zero.client import GWSClient, GWSClientError, GWSAuthError
 from inbox_zero.config import load_config
+from inbox_zero.keys import get_single_key
 from inbox_zero.models import EmailMessage, TriageBatch, TriageItem
 
 app = typer.Typer(
@@ -205,46 +206,52 @@ def review(
 
     console.print(f"[bold green]Starting interactive triage for {len(threads_list)} unread conversation threads...[/bold green]\n")
 
-    for i, t in enumerate(threads_list, 1):
-        tid = t.get("id")
-        if not tid:
-            continue
-
-        try:
-            messages = client.get_thread(tid)
-            if not messages:
+    idx = 0
+    try:
+        while idx < len(threads_list):
+            t = threads_list[idx]
+            tid = t.get("id")
+            if not tid:
+                idx += 1
                 continue
-            item = analyze_thread(messages)
-        except GWSAuthError as err:
-            _handle_gws_error(err)
-        except Exception as e:
-            console.print(f"[red]Error reading thread {tid}: {e}[/red]")
-            continue
 
-        # Format thread participants
-        participants_str = ", ".join(f"{s.name or 'Unknown'} <{s.email}>" for s in item.senders)
+            try:
+                messages = client.get_thread(tid)
+                if not messages:
+                    idx += 1
+                    continue
+                item = analyze_thread(messages)
+            except GWSAuthError as err:
+                _handle_gws_error(err)
+            except Exception as e:
+                console.print(f"[red]Error reading thread {tid}: {e}[/red]")
+                idx += 1
+                continue
 
-        # Build thread messages section
-        thread_messages_md: list[str] = []
-        for msg_idx, msg in enumerate(item.messages, 1):
-            unread_badge = " *(UNREAD)*" if msg.is_unread else ""
-            msg_body = msg.body_text.strip() or "_No text content_"
-            thread_messages_md.append(
-                f"#### 💬 [{msg_idx}/{len(item.messages)}] From {msg.sender.name or 'Unknown'} `<{msg.sender.email}>` ({msg.date}){unread_badge}\n\n{msg_body}"
+            # Format thread participants
+            participants_str = ", ".join(f"{s.name or 'Unknown'} <{s.email}>" for s in item.senders)
+
+            # Build thread messages section
+            thread_messages_md: list[str] = []
+            for msg_idx, msg in enumerate(item.messages, 1):
+                unread_badge = " *(UNREAD)*" if msg.is_unread else ""
+                msg_body = msg.body_text.strip() or "_No text content_"
+                thread_messages_md.append(
+                    f"#### 💬 [{msg_idx}/{len(item.messages)}] From {msg.sender.name or 'Unknown'} `<{msg.sender.email}>` ({msg.date}){unread_badge}\n\n{msg_body}"
+                )
+
+            messages_block = "\n\n---\n\n".join(thread_messages_md)
+
+            # Format suggested replies
+            replies_md = (
+                "\n".join(f"- *\"{r}\"*" for r in item.suggested_replies)
+                if item.suggested_replies
+                else "_No reply needed (automated or acknowledged)_"
             )
 
-        messages_block = "\n\n---\n\n".join(thread_messages_md)
+            thread_section = f"\n---\n### 🧵 Conversation Thread\n\n{messages_block}\n" if display_body else ""
 
-        # Format suggested replies
-        replies_md = (
-            "\n".join(f"- *\"{r}\"*" for r in item.suggested_replies)
-            if item.suggested_replies
-            else "_No reply needed (automated or acknowledged)_"
-        )
-
-        thread_section = f"\n---\n### 🧵 Conversation Thread\n\n{messages_block}\n" if display_body else ""
-
-        body_content = f"""
+            body_content = f"""
 **Participants:** {participants_str}
 **Category:** {item.category} | **Thread Size:** {item.message_count} message(s) ({item.unread_count} unread)
 {thread_section}
@@ -261,95 +268,159 @@ def review(
 ### 💬 Suggested Replies (Reply to Thread)
 {replies_md}
 """
-        console.print(
-            Panel(
-                Markdown(body_content),
-                title=f"[{i}/{len(threads_list)}] {item.title_summary}",
-                border_style="bright_blue",
-            )
-        )
-
-        prompt_text = (
-            "Action: [y] Mark Thread Read, [n] Keep Unread, [c] Add to Calendar, [r] Send Reply, [v] View Full Email, [q] Quit"
-            if not display_body
-            else "Action: [y] Mark Thread Read, [n] Keep Unread, [c] Add to Calendar, [r] Send Reply, [q] Quit"
-        )
-
-        while True:
-            choice = typer.prompt(
-                prompt_text,
-                default="y",
-            ).strip().lower()
-
-            if choice in ("v", "view", "body"):
-                console.print(
-                    Panel(
-                        Markdown(f"### 🧵 Conversation Thread\n\n{messages_block}"),
-                        title=f"Full Thread: {item.title_summary}",
-                        border_style="cyan",
-                    )
+            console.print(
+                Panel(
+                    Markdown(body_content),
+                    title=f"[{idx + 1}/{len(threads_list)}] {item.title_summary}",
+                    border_style="bright_blue",
                 )
-                continue
-            break
+            )
 
-        if choice == "q":
-            console.print("[yellow]Triage stopped by user.[/yellow]")
-            break
-        elif choice == "r":
-            reply_text = ""
-            if item.suggested_replies:
-                console.print("\n[bold]Choose a suggested reply or enter custom text:[/bold]")
-                for idx, r in enumerate(item.suggested_replies, 1):
-                    console.print(f"  [{idx}] {r}")
-                console.print("  [c] Custom reply")
-                console.print("  [s] Skip reply")
-                sub_choice = typer.prompt("Select reply option", default="1").strip()
-                if sub_choice.isdigit() and 1 <= int(sub_choice) <= len(item.suggested_replies):
-                    reply_text = item.suggested_replies[int(sub_choice) - 1]
-                elif sub_choice.lower() == "c":
-                    reply_text = typer.prompt("Enter reply text")
-            else:
-                reply_text = typer.prompt("Enter reply text")
+            prompt_text = (
+                "[bold cyan]Action:[/bold cyan] [bold green]\\[⏎ / →] Mark Read[/bold green], [yellow]\\[← / s] Keep Unread[/yellow], [blue]\\[↓ / v] View Full Email[/blue], [magenta]\\[r] Send Reply[/magenta], [cyan]\\[c] Add to Calendar[/cyan], [dim]\\[q] Quit[/dim]: "
+                if not display_body
+                else "[bold cyan]Action:[/bold cyan] [bold green]\\[⏎ / →] Mark Read[/bold green], [yellow]\\[← / s] Keep Unread[/yellow], [magenta]\\[r] Send Reply[/magenta], [cyan]\\[c] Add to Calendar[/cyan], [dim]\\[q] Quit[/dim]: "
+            )
 
-            if reply_text:
-                try:
-                    if client.send_reply(item.message_id, reply_text):
-                        console.print(f"[green]✓ Reply sent to thread![/green]")
-                        mark = typer.confirm("Mark entire thread as read now?", default=True)
-                        if mark:
-                            client.mark_thread_as_read(item.thread_id)
-                            console.print(f"[green]✓ Thread marked as read.[/green]")
-                    else:
-                        console.print(f"[red]✗ Failed to send reply.[/red]")
-                except Exception as e:
-                    console.print(f"[red]Error sending reply: {e}[/red]")
-        elif choice == "c" and item.calendar_events:
-            for ev in item.calendar_events:
-                confirm = typer.confirm(f"Add event '{ev.summary}' ({ev.start_time}) to calendar?", default=True)
-                if confirm:
-                    try:
-                        client.insert_calendar_event(
-                            summary=ev.summary,
-                            start_time=ev.start_time,
-                            description=ev.description or "",
+            user_quits = False
+            while True:
+                console.print(prompt_text, end="")
+                choice = get_single_key().strip().lower()
+                console.print()
+
+                if choice in ("q", "quit", "exit", "esc"):
+                    console.print("[yellow]Triage stopped by user.[/yellow]")
+                    user_quits = True
+                    break
+
+                if choice in ("?", "h", "help"):
+                    console.print(
+                        Panel(
+                            "  • [bold green][⏎][/bold green] or [bold green][→][/bold green] or [bold green][d][/bold green] : Mark thread as read & advance to next\n"
+                            "  • [yellow][←][/yellow] or [yellow][s][/yellow] or [yellow][n][/yellow]     : Keep thread unread (skip) & advance to next\n"
+                            "  • [cyan][↑][/cyan] or [cyan][p][/cyan]             : Go back to previous email thread\n"
+                            "  • [blue][↓][/blue] or [blue][v][/blue]             : View full conversation thread / email body\n"
+                            "  • [magenta][r][/magenta]                   : Send a suggested or custom reply\n"
+                            "  • [cyan][c][/cyan]                   : Add detected date/meeting to Google Calendar\n"
+                            "  • [dim][q][/dim] or [dim][Esc][/dim]          : Quit interactive review",
+                            title="⌨️  Keyboard Shortcuts",
+                            border_style="cyan",
                         )
-                        console.print(f"[green]✓ Added to Google Calendar![/green]")
-                    except Exception as e:
-                        console.print(f"[red]Failed to insert calendar event: {e}[/red]")
+                    )
+                    continue
 
-            mark = typer.confirm("Now mark this thread as read?", default=True)
-            if mark:
-                client.mark_thread_as_read(item.thread_id)
-                console.print(f"[green]✓ Thread marked as read.[/green]")
-        elif choice in ("y", "yes"):
-            if client.mark_thread_as_read(item.thread_id):
-                console.print(f"[green]✓ Marked thread as read.[/green]")
-            else:
-                console.print(f"[red]✗ Failed to mark thread as read.[/red]")
-        else:
-            console.print("[dim]Kept thread unread.[/dim]")
+                if choice in ("up", "p", "prev", "previous"):
+                    if idx > 0:
+                        idx -= 1
+                        break
+                    else:
+                        console.print("[yellow]Already at the first email thread.[/yellow]")
+                        continue
 
-        console.print("=" * 60)
+                if choice in ("v", "view", "body", "down", "o"):
+                    console.print(
+                        Panel(
+                            Markdown(f"### 🧵 Conversation Thread\n\n{messages_block}"),
+                            title=f"Full Thread: {item.title_summary}",
+                            border_style="cyan",
+                        )
+                    )
+                    continue
+
+                if choice in ("r", "reply"):
+                    reply_text = ""
+                    if item.suggested_replies:
+                        console.print("\n[bold]Choose a suggested reply or enter custom text:[/bold]")
+                        for r_idx, r in enumerate(item.suggested_replies, 1):
+                            console.print(f"  [{r_idx}] {r}")
+                        console.print("  [c] Custom reply")
+                        console.print("  [s / Esc] Skip reply")
+                        
+                        console.print("Select reply option [1]: ", end="")
+                        sub_choice = get_single_key().strip().lower()
+                        console.print()
+
+                        if sub_choice in ("enter", "1", "") and len(item.suggested_replies) >= 1:
+                            reply_text = item.suggested_replies[0]
+                        elif sub_choice.isdigit() and 1 <= int(sub_choice) <= len(item.suggested_replies):
+                            reply_text = item.suggested_replies[int(sub_choice) - 1]
+                        elif sub_choice in ("c", "custom"):
+                            reply_text = typer.prompt("Enter reply text")
+                        elif sub_choice in ("s", "esc", "q"):
+                            console.print("[dim]Reply cancelled.[/dim]")
+                            continue
+                    else:
+                        reply_text = typer.prompt("Enter reply text")
+
+                    if reply_text:
+                        try:
+                            if client.send_reply(item.message_id, reply_text):
+                                console.print(f"[green]✓ Reply sent to thread![/green]")
+                                console.print("[bold]Mark entire thread as read now? [⏎ / y] Yes  [n] No:[/bold] ", end="")
+                                mark_confirm = get_single_key().strip().lower()
+                                console.print()
+                                if mark_confirm in ("enter", "y", "yes", "d", "right", ""):
+                                    client.mark_thread_as_read(item.thread_id)
+                                    console.print(f"[green]✓ Thread marked as read.[/green]")
+                            else:
+                                console.print(f"[red]✗ Failed to send reply.[/red]")
+                        except Exception as e:
+                            console.print(f"[red]Error sending reply: {e}[/red]")
+                    idx += 1
+                    break
+
+                if choice in ("c", "cal", "calendar"):
+                    if not item.calendar_events:
+                        console.print("[yellow]No calendar dates/events detected in this thread.[/yellow]")
+                        continue
+
+                    for ev in item.calendar_events:
+                        console.print(f"Add event '[bold cyan]{ev.summary}[/bold cyan]' ({ev.start_time}) to calendar? [⏎ / y] Yes  [n] Skip: ", end="")
+                        ev_confirm = get_single_key().strip().lower()
+                        console.print()
+                        if ev_confirm in ("enter", "y", "yes", "d", "right", ""):
+                            try:
+                                client.insert_calendar_event(
+                                    summary=ev.summary,
+                                    start_time=ev.start_time,
+                                    description=ev.description or "",
+                                )
+                                console.print(f"[green]✓ Added to Google Calendar![/green]")
+                            except Exception as e:
+                                console.print(f"[red]Failed to insert calendar event: {e}[/red]")
+                        else:
+                            console.print("[dim]Skipped adding event.[/dim]")
+
+                    console.print("[bold]Now mark this thread as read? [⏎ / y] Yes  [n] No:[/bold] ", end="")
+                    mark_confirm = get_single_key().strip().lower()
+                    console.print()
+                    if mark_confirm in ("enter", "y", "yes", "d", "right", ""):
+                        client.mark_thread_as_read(item.thread_id)
+                        console.print(f"[green]✓ Thread marked as read.[/green]")
+                    idx += 1
+                    break
+
+                if choice in ("enter", "right", "d", "y", "yes", "e", "read", ""):
+                    if client.mark_thread_as_read(item.thread_id):
+                        console.print(f"[green]✓ Marked thread as read.[/green]")
+                    else:
+                        console.print(f"[red]✗ Failed to mark thread as read.[/red]")
+                    idx += 1
+                    break
+
+                if choice in ("left", "s", "n", "no", "k", "skip", "keep"):
+                    console.print("[dim]Kept thread unread.[/dim]")
+                    idx += 1
+                    break
+
+                console.print(f"[yellow]Unknown option '{choice}'. Press [?] for shortcut help.[/yellow]")
+
+            if user_quits:
+                break
+
+            console.print("=" * 60)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Triage stopped by user.[/yellow]")
 
 
 @app.command()
